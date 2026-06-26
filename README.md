@@ -102,6 +102,7 @@ cached (method `llm`) and preserved by later `classify` runs.
 ## Tuning
 Open `config.py`:
 - `GENRE_BUCKETS` — fold fine genres into your coarse buckets.
+- `MAX_GENRES` — cap on buckets the free classifier keeps per track (strongest first).
 - `MOOD_TAGS`, `ENERGY_BANDS`, `VIBE_RULES` — define what each vibe means.
 - `GENRE_ENERGY`, `GENRE_VIBES`, `SUBGENRE_ENERGY_HINTS` — the coverage fallback.
 - `PLAYLIST_SCHEMES` — any of `["vibe", "genre", "combined"]`.

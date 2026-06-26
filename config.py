@@ -55,6 +55,10 @@ GENRE_BUCKETS: dict[str, list[str]] = {
     "Ambient/Lo-fi": ["ambient", "lo-fi", "lofi", "chillhop", "downtempo", "instrumental"],
 }
 DEFAULT_GENRE = "Other"
+# Cap on how many buckets the free classifier keeps per track (strongest first).
+# Prevents noisy over-labelling from artist-level genres. Ignored when
+# MULTI_LABEL is False (then it's always 1). The LLM pass uses LLM_MAX_GENRES.
+MAX_GENRES = 2
 
 # --- Vibe / mood / activity rules ------------------------------------------
 # Mood tag normalisation: map raw Last.fm tag substrings -> canonical mood.
