@@ -2,10 +2,12 @@
 
 Shows every possible genre, vibe, energy band, and mood (straight from config.py),
 plus searchable scrollable lists of artists and albums (which cross-filter each
-other). Every option is tri-state — click cycles off → include (✓) → exclude (✗) —
-so you can build "NOT" queries (e.g. include Hip-hop/Rap but exclude a given
-artist). Excludes are hard filters; includes combine via the Any/All match mode.
-The table updates live as you click.
+other). Tick an option's checkbox to select it. Each section has an INCLUDE /
+EXCLUDE button below it: in INCLUDE mode the section's ticked options are required,
+in EXCLUDE mode they are filtered out — so you can build "NOT" queries (e.g. include
+Hip-hop/Rap genres but flip the Artists section to EXCLUDE a given artist). Excludes
+are hard filters; includes combine via the Any/All match mode. The table updates
+live as you click.
 
     conda activate Spotify
     python gui.py
@@ -17,7 +19,7 @@ from __future__ import annotations
 import json
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox
 
 import config
 import db
@@ -57,58 +59,72 @@ def load_rows() -> list[dict]:
     return out
 
 
-# --- tri-state selection: each option is off / include (✓) / exclude (✗) -----
+# --- selection model: each option is simply on (✓) or off; the whole section
+# is interpreted as INCLUDE or EXCLUDE depending on its mode button ------------
 INCLUDE, EXCLUDE = "include", "exclude"
-# off shows no marker (blank, to keep text aligned); only active states get a glyph
-_MARK = {None: "  ", INCLUDE: "✓", EXCLUDE: "✗"}
-_FG = {None: "black", INCLUDE: "#1a7f37", EXCLUDE: "#cf222e"}
+_MODE_FG = {INCLUDE: "#1a7f37", EXCLUDE: "#cf222e"}  # green / red
 
 
-class TriState:
-    """Per-option state: absent (off), 'include', or 'exclude'. Clicking cycles."""
+class Selection:
+    """Per-section state: a set of ticked options plus a mode (include/exclude).
+    Every ticked option is treated according to the current mode."""
 
     def __init__(self):
-        self.state: dict[str, str] = {}
+        self.selected: set[str] = set()
+        self.mode: str = INCLUDE
 
-    def cycle(self, opt: str) -> None:
-        s = self.state.get(opt)
-        nxt = INCLUDE if s is None else (EXCLUDE if s == INCLUDE else None)
-        if nxt is None:
-            self.state.pop(opt, None)
+    def toggle(self, opt: str) -> None:
+        if opt in self.selected:
+            self.selected.discard(opt)
         else:
-            self.state[opt] = nxt
+            self.selected.add(opt)
 
-    def get(self, opt: str):
-        return self.state.get(opt)
+    def is_on(self, opt: str) -> bool:
+        return opt in self.selected
+
+    def flip_mode(self) -> None:
+        self.mode = EXCLUDE if self.mode == INCLUDE else INCLUDE
 
     def included(self) -> set[str]:
-        return {o for o, s in self.state.items() if s == INCLUDE}
+        return set(self.selected) if self.mode == INCLUDE else set()
 
     def excluded(self) -> set[str]:
-        return {o for o, s in self.state.items() if s == EXCLUDE}
+        return set(self.selected) if self.mode == EXCLUDE else set()
 
     def clear(self) -> None:
-        self.state.clear()
+        self.selected.clear()
 
 
-def _make_tri_button(parent, option, tri, on_change, label=None):
-    """A flat, left-aligned row button that cycles tri-state on click.
-    Returns (button, redraw) where redraw() refreshes its marker/colour."""
-    btn = tk.Button(parent, anchor="w", relief="flat", bd=0, highlightthickness=0,
-                    padx=2, pady=0, takefocus=0)
+def _make_check(parent, option, sel, on_change, label=None):
+    """A native checkbox row that toggles `option` in `sel` on click. Native
+    widget => no unicode glyph needed (the old ✓/✗ marks didn't render in some
+    Tk fonts). Returns the Checkbutton."""
+    var = tk.BooleanVar(value=sel.is_on(option))
 
-    def redraw():
-        s = tri.get(option)
-        btn.config(text=f"{_MARK[s]} {label or option}", fg=_FG[s])
-
-    def click():
-        tri.cycle(option)
-        redraw()
+    def toggle():
+        if var.get():
+            sel.selected.add(option)
+        else:
+            sel.selected.discard(option)
         on_change()
 
-    btn.config(command=click)
-    redraw()
-    return btn, redraw
+    return ttk.Checkbutton(parent, text=label or option, variable=var,
+                           command=toggle, takefocus=0)
+
+
+def _make_mode_button(parent, sel, on_flip):
+    """The INCLUDE / EXCLUDE toggle shown below each section. Returns
+    (button, sync) where sync() refreshes its label/colour from `sel.mode`."""
+    btn = tk.Button(parent, width=9, takefocus=0)
+
+    def sync():
+        colour = _MODE_FG[sel.mode]
+        btn.config(text=sel.mode.upper(), fg="white", bg=colour,
+                   activebackground=colour, activeforeground="white")
+
+    btn.config(command=on_flip)
+    sync()
+    return btn, sync
 
 
 def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
@@ -146,38 +162,53 @@ def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
 
 
 class CheckGroup(ttk.LabelFrame):
-    """A labelled frame of tri-state rows (off / include / exclude)."""
+    """A labelled frame of on/off toggle rows with an INCLUDE/EXCLUDE mode
+    button beneath them that decides how the ticked options are applied."""
 
     def __init__(self, master, title: str, options: list[str], on_change):
         super().__init__(master, text=title, padding=8)
         self.on_change = on_change
-        self.tri = TriState()
-        self._redraws = []
+        self.sel = Selection()
+        self._vars: dict[str, tk.BooleanVar] = {}
         for opt in options:
-            btn, redraw = _make_tri_button(self, opt, self.tri, on_change,
-                                           label=(opt or "(none)"))
-            btn.pack(anchor="w", fill="x")
-            self._redraws.append(redraw)
-        ttk.Button(self, text="None", width=6, command=self.clear).pack(anchor="w", pady=(6, 0))
+            var = tk.BooleanVar(value=False)
+            self._vars[opt] = var
 
-    def _redraw_all(self) -> None:
-        for r in self._redraws:
-            r()
+            def toggle(o=opt, v=var):
+                if v.get():
+                    self.sel.selected.add(o)
+                else:
+                    self.sel.selected.discard(o)
+                self.on_change()
+
+            ttk.Checkbutton(self, text=(opt or "(none)"), variable=var,
+                            command=toggle, takefocus=0).pack(anchor="w", fill="x")
+        bar = ttk.Frame(self)
+        bar.pack(anchor="w", fill="x", pady=(6, 0))
+        self.mode_btn, self._sync_mode = _make_mode_button(bar, self.sel, self.flip_mode)
+        self.mode_btn.pack(side="left")
+        ttk.Button(bar, text="None", width=6, command=self.clear).pack(side="left", padx=(4, 0))
+
+    def flip_mode(self) -> None:
+        self.sel.flip_mode()
+        self._sync_mode()
+        self.on_change()  # checkboxes don't change; only interpretation does
 
     def reset(self) -> None:
-        """Clear without firing on_change (used by 'Clear all filters')."""
-        self.tri.clear()
-        self._redraw_all()
+        """Clear ticks without firing on_change (used by 'Clear all filters')."""
+        self.sel.clear()
+        for v in self._vars.values():
+            v.set(False)
 
     def clear(self) -> None:
         self.reset()
         self.on_change()
 
     def included(self) -> set[str]:
-        return self.tri.included()
+        return self.sel.included()
 
     def excluded(self) -> set[str]:
-        return self.tri.excluded()
+        return self.sel.excluded()
 
 
 class CheckListGroup(ttk.LabelFrame):
@@ -186,14 +217,14 @@ class CheckListGroup(ttk.LabelFrame):
     persist while you search. Selected items are shown first; the visible list is
     capped for responsiveness (narrow it by typing)."""
 
-    RENDER_CAP = 300  # max checkboxes drawn at once (selected ones always shown)
+    RENDER_CAP = 200  # max checkboxes drawn at once (selected ones always shown)
 
     def __init__(self, master, title: str, options: list[str], on_change,
                  width: int = 26, canvas_height: int = 210):
         super().__init__(master, text=title, padding=6)
         self.on_change = on_change
         self.all_options = sorted(o for o in options if o)
-        self.tri = TriState()  # off / include / exclude per option
+        self.sel = Selection()  # ticked options + include/exclude mode
         self.allowed: set[str] | None = None  # cross-filter restriction (None = all)
 
         self.search_var = tk.StringVar()
@@ -202,8 +233,10 @@ class CheckListGroup(ttk.LabelFrame):
 
         bar = ttk.Frame(self)
         bar.pack(side="bottom", fill="x", pady=(4, 0))
+        self.mode_btn, self._sync_mode = _make_mode_button(bar, self.sel, self.flip_mode)
+        self.mode_btn.pack(side="left")
         self.count_lbl = ttk.Label(bar, text="")
-        self.count_lbl.pack(side="left")
+        self.count_lbl.pack(side="left", padx=(6, 0))
         ttk.Button(bar, text="Clear", width=6, command=self.clear).pack(side="right")
 
         mid = ttk.Frame(self)
@@ -243,15 +276,18 @@ class CheckListGroup(ttk.LabelFrame):
 
     def set_allowed(self, allowed: set[str] | None) -> None:
         """Restrict which options are offered (cross-filter from another panel).
-        Does not fire on_change; re-renders in place."""
+        Does not fire on_change; re-renders only when the restriction actually
+        changed (re-rendering hundreds of widgets on every click was the lag)."""
+        if allowed == self.allowed:
+            return
         self.allowed = allowed
         self._render()
 
     def _visible(self, o: str, q: str) -> bool:
-        active = self.tri.get(o) is not None
-        if q and q not in o.lower():
+        active = self.sel.is_on(o)
+        if q and not o.lower().startswith(q):
             return False
-        # cross-filter hides options not allowed — unless already include/exclude
+        # cross-filter hides options not allowed — unless already ticked
         if self.allowed is not None and o not in self.allowed and not active:
             return False
         return True
@@ -261,12 +297,11 @@ class CheckListGroup(ttk.LabelFrame):
             w.destroy()
         q = self.search_var.get().strip().lower()
         matches = [o for o in self.all_options if self._visible(o, q)]
-        # active (include/exclude) first so they're never hidden by the cap
-        matches.sort(key=lambda o: (self.tri.get(o) is None, o.lower()))
+        # ticked options first so they're never hidden by the cap
+        matches.sort(key=lambda o: (not self.sel.is_on(o), o.lower()))
         shown = matches[: self.RENDER_CAP]
         for o in shown:
-            btn, _ = _make_tri_button(self.inner, o, self.tri, self._on_toggle)
-            btn.pack(anchor="w", fill="x")
+            _make_check(self.inner, o, self.sel, self._on_toggle).pack(anchor="w", fill="x")
         if len(matches) > len(shown):
             ttk.Label(self.inner, foreground="gray",
                       text=f"… {len(matches) - len(shown)} more — type to narrow").pack(anchor="w")
@@ -277,18 +312,18 @@ class CheckListGroup(ttk.LabelFrame):
         self._update_count()
         self.on_change()
 
+    def flip_mode(self) -> None:
+        self.sel.flip_mode()
+        self._sync_mode()
+        self.on_change()  # checkboxes unchanged; only interpretation flips
+
     def _update_count(self) -> None:
-        inc, exc = len(self.tri.included()), len(self.tri.excluded())
-        parts = []
-        if inc:
-            parts.append(f"{inc} ✓")
-        if exc:
-            parts.append(f"{exc} ✗")
-        self.count_lbl.config(text="  ".join(parts))
+        n = len(self.sel.selected)
+        self.count_lbl.config(text=f"{n} ticked" if n else "")
 
     def reset(self) -> None:
-        """Clear without firing on_change (used by 'Clear all filters')."""
-        self.tri.clear()
+        """Clear ticks without firing on_change (used by 'Clear all filters')."""
+        self.sel.clear()
         self._render()
 
     def clear(self) -> None:
@@ -296,10 +331,10 @@ class CheckListGroup(ttk.LabelFrame):
         self.on_change()
 
     def included(self) -> set[str]:
-        return self.tri.included()
+        return self.sel.included()
 
     def excluded(self) -> set[str]:
-        return self.tri.excluded()
+        return self.sel.excluded()
 
 
 class App(ttk.Frame):
@@ -357,7 +392,7 @@ class App(ttk.Frame):
         self.count_var = tk.StringVar()
         ttk.Label(controls, textvariable=self.count_var,
                   font=("TkDefaultFont", 10, "bold")).pack(side="right")
-        ttk.Label(controls, text="click cycles:  off → ✓ include → ✗ exclude",
+        ttk.Label(controls, text="click to tick;  INCLUDE/EXCLUDE button sets each section's mode",
                   foreground="gray40").pack(side="right", padx=12)
 
         # --- bottom: results table ---
@@ -422,6 +457,42 @@ class App(ttk.Frame):
         self.count_var.set(f"{len(self.shown_rows)} / {len(self.rows)} tracks")
 
     # --- playlist creation -------------------------------------------------
+    def _ask_string(self, title: str, prompt: str, initial: str = "") -> str | None:
+        """Modal text prompt. Replaces simpledialog.askstring, which crashes on
+        Python 3.14 / some window managers (wait_visibility on a window the WM
+        deleted: 'window was deleted before its visibility changed')."""
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.transient(self.winfo_toplevel())
+        win.resizable(False, False)
+        result: dict[str, str | None] = {"value": None}
+
+        ttk.Label(win, text=prompt, justify="left").pack(
+            anchor="w", padx=12, pady=(12, 6))
+        var = tk.StringVar(value=initial)
+        entry = ttk.Entry(win, textvariable=var, width=40)
+        entry.pack(fill="x", padx=12)
+        entry.select_range(0, "end")
+
+        def ok(_e=None):
+            result["value"] = var.get()
+            win.destroy()
+
+        def cancel(_e=None):
+            win.destroy()
+
+        btns = ttk.Frame(win)
+        btns.pack(fill="x", padx=12, pady=12)
+        ttk.Button(btns, text="OK", command=ok).pack(side="right")
+        ttk.Button(btns, text="Cancel", command=cancel).pack(side="right", padx=(0, 6))
+        entry.bind("<Return>", ok)
+        win.bind("<Escape>", cancel)
+
+        entry.focus_set()
+        win.grab_set()
+        self.wait_window(win)
+        return result["value"]
+
     def _suggest_name(self) -> str:
         parts = (list(self.vibe_group.included()) + list(self.genre_group.included())
                  + list(self.energy_group.included()) + list(self.mood_group.included()))
@@ -432,11 +503,11 @@ class App(ttk.Frame):
         if not tracks:
             messagebox.showwarning("Nothing to add", "No tracks match the current filters.")
             return
-        name = simpledialog.askstring(
+        name = self._ask_string(
             "Create Spotify playlist",
             f"{len(tracks)} track(s) will be added.\nPlaylist name "
             f"(prefix '{config.PLAYLIST_PREFIX}' is added automatically):",
-            initialvalue=self._suggest_name(), parent=self,
+            initial=self._suggest_name(),
         )
         if not name:
             return

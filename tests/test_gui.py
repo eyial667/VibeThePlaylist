@@ -29,16 +29,24 @@ def test_load_rows_empty_when_no_labels(temp_db):
     assert gui.load_rows() == []
 
 
-# --- tri-state include/exclude (NOT) -------------------------------------
-def test_tristate_cycles_off_include_exclude():
-    t = gui.TriState()
-    assert t.get("Rock") is None
-    t.cycle("Rock"); assert t.get("Rock") == gui.INCLUDE
-    t.cycle("Rock"); assert t.get("Rock") == gui.EXCLUDE
-    t.cycle("Rock"); assert t.get("Rock") is None
-    t.cycle("Rock"); t.cycle("Jazz")  # include Rock(again via 1), include Jazz
-    t.cycle("Jazz")                    # Jazz -> exclude
-    assert t.included() == {"Rock"} and t.excluded() == {"Jazz"}
+# --- per-section selection + include/exclude mode -------------------------
+def test_selection_toggle_and_mode():
+    s = gui.Selection()
+    assert s.mode == gui.INCLUDE
+    assert not s.is_on("Rock")
+    s.toggle("Rock"); s.toggle("Jazz")
+    assert s.is_on("Rock") and s.is_on("Jazz")
+    # default INCLUDE mode -> ticked options are includes
+    assert s.included() == {"Rock", "Jazz"} and s.excluded() == set()
+    # flipping to EXCLUDE reinterprets the same ticks as excludes
+    s.flip_mode()
+    assert s.mode == gui.EXCLUDE
+    assert s.included() == set() and s.excluded() == {"Rock", "Jazz"}
+    # untick + clear
+    s.toggle("Rock")
+    assert s.excluded() == {"Jazz"}
+    s.clear()
+    assert s.included() == set() and s.excluded() == set()
 
 
 def _row(genres=(), vibes=(), energy="mid", moods=(), artist="A", album="X"):
