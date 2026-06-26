@@ -1,9 +1,11 @@
 """Desktop GUI for browsing your classified library.
 
-Shows every possible genre, vibe, energy band, and mood (straight from config.py)
-as checkboxes, plus searchable scrollable checkbox lists of artists and albums
-(which cross-filter each other: picking artists narrows the albums to theirs, and
-vice versa). Pick any combination and the table updates live to show matches.
+Shows every possible genre, vibe, energy band, and mood (straight from config.py),
+plus searchable scrollable lists of artists and albums (which cross-filter each
+other). Every option is tri-state — click cycles off → include (✓) → exclude (✗) —
+so you can build "NOT" queries (e.g. include Hip-hop/Rap but exclude a given
+artist). Excludes are hard filters; includes combine via the Any/All match mode.
+The table updates live as you click.
 
     conda activate Spotify
     python gui.py
@@ -55,31 +57,126 @@ def load_rows() -> list[dict]:
     return out
 
 
+# --- tri-state selection: each option is off / include (✓) / exclude (✗) -----
+INCLUDE, EXCLUDE = "include", "exclude"
+_MARK = {None: "☐", INCLUDE: "✓", EXCLUDE: "✗"}
+_FG = {None: "gray40", INCLUDE: "#1a7f37", EXCLUDE: "#cf222e"}
+
+
+class TriState:
+    """Per-option state: absent (off), 'include', or 'exclude'. Clicking cycles."""
+
+    def __init__(self):
+        self.state: dict[str, str] = {}
+
+    def cycle(self, opt: str) -> None:
+        s = self.state.get(opt)
+        nxt = INCLUDE if s is None else (EXCLUDE if s == INCLUDE else None)
+        if nxt is None:
+            self.state.pop(opt, None)
+        else:
+            self.state[opt] = nxt
+
+    def get(self, opt: str):
+        return self.state.get(opt)
+
+    def included(self) -> set[str]:
+        return {o for o, s in self.state.items() if s == INCLUDE}
+
+    def excluded(self) -> set[str]:
+        return {o for o, s in self.state.items() if s == EXCLUDE}
+
+    def clear(self) -> None:
+        self.state.clear()
+
+
+def _make_tri_button(parent, option, tri, on_change, label=None):
+    """A flat, left-aligned row button that cycles tri-state on click.
+    Returns (button, redraw) where redraw() refreshes its marker/colour."""
+    btn = tk.Button(parent, anchor="w", relief="flat", bd=0, highlightthickness=0,
+                    padx=2, pady=0, takefocus=0)
+
+    def redraw():
+        s = tri.get(option)
+        btn.config(text=f"{_MARK[s]} {label or option}", fg=_FG[s])
+
+    def click():
+        tri.cycle(option)
+        redraw()
+        on_change()
+
+    btn.config(command=click)
+    redraw()
+    return btn, redraw
+
+
+def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
+    """Pure filter test. `inc`/`exc` map category keys (g,v,e,m,ar,al) to sets of
+    included/excluded values. Excludes are hard (any hit removes the row);
+    includes combine via any_mode (Any selected) or all (All categories)."""
+    if exc["g"] & set(row["genres"]):
+        return False
+    if exc["v"] & set(row["vibes"]):
+        return False
+    if row["energy"] in exc["e"]:
+        return False
+    if exc["m"] & set(row["moods"]):
+        return False
+    if row["artist"] in exc["ar"]:
+        return False
+    if row["album"] in exc["al"]:
+        return False
+    checks = []
+    if inc["g"]:
+        checks.append(bool(inc["g"] & set(row["genres"])))
+    if inc["v"]:
+        checks.append(bool(inc["v"] & set(row["vibes"])))
+    if inc["e"]:
+        checks.append(row["energy"] in inc["e"])
+    if inc["m"]:
+        checks.append(bool(inc["m"] & set(row["moods"])))
+    if inc["ar"]:
+        checks.append(row["artist"] in inc["ar"])
+    if inc["al"]:
+        checks.append(row["album"] in inc["al"])
+    if not checks:
+        return True  # nothing included -> keep (subject to excludes above)
+    return any(checks) if any_mode else all(checks)
+
+
 class CheckGroup(ttk.LabelFrame):
-    """A labelled frame of checkboxes with Select all / none helpers."""
+    """A labelled frame of tri-state rows (off / include / exclude)."""
 
     def __init__(self, master, title: str, options: list[str], on_change):
         super().__init__(master, text=title, padding=8)
-        self.vars: dict[str, tk.BooleanVar] = {}
+        self.on_change = on_change
+        self.tri = TriState()
+        self._redraws = []
         for opt in options:
-            var = tk.BooleanVar(value=False)
-            self.vars[opt] = var
-            ttk.Checkbutton(self, text=opt or "(none)", variable=var,
-                            command=on_change).pack(anchor="w")
-        btns = ttk.Frame(self)
-        btns.pack(anchor="w", pady=(6, 0))
-        ttk.Button(btns, text="All", width=5,
-                   command=lambda: self._set_all(True, on_change)).pack(side="left")
-        ttk.Button(btns, text="None", width=6,
-                   command=lambda: self._set_all(False, on_change)).pack(side="left")
+            btn, redraw = _make_tri_button(self, opt, self.tri, on_change,
+                                           label=(opt or "(none)"))
+            btn.pack(anchor="w", fill="x")
+            self._redraws.append(redraw)
+        ttk.Button(self, text="None", width=6, command=self.clear).pack(anchor="w", pady=(6, 0))
 
-    def _set_all(self, value: bool, on_change) -> None:
-        for var in self.vars.values():
-            var.set(value)
-        on_change()
+    def _redraw_all(self) -> None:
+        for r in self._redraws:
+            r()
 
-    def selected(self) -> set[str]:
-        return {opt for opt, var in self.vars.items() if var.get()}
+    def reset(self) -> None:
+        """Clear without firing on_change (used by 'Clear all filters')."""
+        self.tri.clear()
+        self._redraw_all()
+
+    def clear(self) -> None:
+        self.reset()
+        self.on_change()
+
+    def included(self) -> set[str]:
+        return self.tri.included()
+
+    def excluded(self) -> set[str]:
+        return self.tri.excluded()
 
 
 class CheckListGroup(ttk.LabelFrame):
@@ -95,8 +192,7 @@ class CheckListGroup(ttk.LabelFrame):
         super().__init__(master, text=title, padding=6)
         self.on_change = on_change
         self.all_options = sorted(o for o in options if o)
-        self.vars: dict[str, tk.BooleanVar] = {o: tk.BooleanVar(value=False)
-                                               for o in self.all_options}
+        self.tri = TriState()  # off / include / exclude per option
         self.allowed: set[str] | None = None  # cross-filter restriction (None = all)
 
         self.search_var = tk.StringVar()
@@ -151,10 +247,11 @@ class CheckListGroup(ttk.LabelFrame):
         self._render()
 
     def _visible(self, o: str, q: str) -> bool:
+        active = self.tri.get(o) is not None
         if q and q not in o.lower():
             return False
-        # cross-filter hides options not allowed — unless already ticked
-        if self.allowed is not None and o not in self.allowed and not self.vars[o].get():
+        # cross-filter hides options not allowed — unless already include/exclude
+        if self.allowed is not None and o not in self.allowed and not active:
             return False
         return True
 
@@ -163,12 +260,12 @@ class CheckListGroup(ttk.LabelFrame):
             w.destroy()
         q = self.search_var.get().strip().lower()
         matches = [o for o in self.all_options if self._visible(o, q)]
-        # selected first so ticked items are never hidden by the cap
-        matches.sort(key=lambda o: (not self.vars[o].get(), o.lower()))
+        # active (include/exclude) first so they're never hidden by the cap
+        matches.sort(key=lambda o: (self.tri.get(o) is None, o.lower()))
         shown = matches[: self.RENDER_CAP]
         for o in shown:
-            ttk.Checkbutton(self.inner, text=o, variable=self.vars[o],
-                            command=self._on_toggle).pack(anchor="w", fill="x")
+            btn, _ = _make_tri_button(self.inner, o, self.tri, self._on_toggle)
+            btn.pack(anchor="w", fill="x")
         if len(matches) > len(shown):
             ttk.Label(self.inner, foreground="gray",
                       text=f"… {len(matches) - len(shown)} more — type to narrow").pack(anchor="w")
@@ -180,17 +277,28 @@ class CheckListGroup(ttk.LabelFrame):
         self.on_change()
 
     def _update_count(self) -> None:
-        n = sum(1 for v in self.vars.values() if v.get())
-        self.count_lbl.config(text=f"{n} selected" if n else "")
+        inc, exc = len(self.tri.included()), len(self.tri.excluded())
+        parts = []
+        if inc:
+            parts.append(f"{inc} ✓")
+        if exc:
+            parts.append(f"{exc} ✗")
+        self.count_lbl.config(text="  ".join(parts))
+
+    def reset(self) -> None:
+        """Clear without firing on_change (used by 'Clear all filters')."""
+        self.tri.clear()
+        self._render()
 
     def clear(self) -> None:
-        for v in self.vars.values():
-            v.set(False)
-        self._render()
+        self.reset()
         self.on_change()
 
-    def selected(self) -> set[str]:
-        return {o for o, v in self.vars.items() if v.get()}
+    def included(self) -> set[str]:
+        return self.tri.included()
+
+    def excluded(self) -> set[str]:
+        return self.tri.excluded()
 
 
 class App(ttk.Frame):
@@ -248,6 +356,8 @@ class App(ttk.Frame):
         self.count_var = tk.StringVar()
         ttk.Label(controls, textvariable=self.count_var,
                   font=("TkDefaultFont", 10, "bold")).pack(side="right")
+        ttk.Label(controls, text="click cycles  ☐ off → ✓ include → ✗ exclude",
+                  foreground="gray40").pack(side="right", padx=12)
 
         # --- bottom: results table ---
         cols = ("artist", "title", "album", "genres", "energy", "vibes")
@@ -272,54 +382,37 @@ class App(ttk.Frame):
 
     # --- filtering ---------------------------------------------------------
     def clear_all(self) -> None:
-        for group in (self.genre_group, self.vibe_group, self.energy_group, self.mood_group):
-            for var in group.vars.values():
-                var.set(False)
-        self.artist_group.clear()
-        self.album_group.clear()
+        for group in (self.genre_group, self.vibe_group, self.energy_group,
+                      self.mood_group, self.artist_group, self.album_group):
+            group.reset()
         self.refresh()
 
-    def _matches(self, row: dict, sel_g, sel_v, sel_e, sel_m, sel_ar, sel_al) -> bool:
-        any_mode = self.match_mode.get() == "any"
-        checks = []
-        if sel_g:
-            checks.append(bool(sel_g & set(row["genres"])))
-        if sel_v:
-            checks.append(bool(sel_v & set(row["vibes"])))
-        if sel_e:
-            checks.append(row["energy"] in sel_e)
-        if sel_m:
-            checks.append(bool(sel_m & set(row["moods"])))
-        if sel_ar:
-            checks.append(row["artist"] in sel_ar)
-        if sel_al:
-            checks.append(row["album"] in sel_al)
-        if not checks:
-            return True  # nothing selected -> show everything
-        return any(checks) if any_mode else all(checks)
+    def _matches(self, row: dict, inc: dict, exc: dict) -> bool:
+        return row_matches(row, inc, exc, self.match_mode.get() == "any")
 
     def refresh(self) -> None:
-        sel_g = self.genre_group.selected()
-        sel_v = self.vibe_group.selected()
-        sel_e = self.energy_group.selected()
-        sel_m = self.mood_group.selected()
-        sel_ar = self.artist_group.selected()
-        sel_al = self.album_group.selected()
+        inc = {
+            "g": self.genre_group.included(), "v": self.vibe_group.included(),
+            "e": self.energy_group.included(), "m": self.mood_group.included(),
+            "ar": self.artist_group.included(), "al": self.album_group.included(),
+        }
+        exc = {
+            "g": self.genre_group.excluded(), "v": self.vibe_group.excluded(),
+            "e": self.energy_group.excluded(), "m": self.mood_group.excluded(),
+            "ar": self.artist_group.excluded(), "al": self.album_group.excluded(),
+        }
 
-        # cross-filter the panels: albums limited to selected artists' albums, and
-        # artists limited to selected albums' artists (None = no restriction)
-        allowed_albums = set().union(*(self.artist_albums.get(a, set()) for a in sel_ar)) \
-            if sel_ar else None
-        allowed_artists = set().union(*(self.album_artists.get(al, set()) for al in sel_al)) \
-            if sel_al else None
+        # cross-filter the panels by INCLUDED selections only (excludes don't narrow):
+        # albums limited to included artists' albums, artists to included albums' artists
+        allowed_albums = set().union(*(self.artist_albums.get(a, set()) for a in inc["ar"])) \
+            if inc["ar"] else None
+        allowed_artists = set().union(*(self.album_artists.get(al, set()) for al in inc["al"])) \
+            if inc["al"] else None
         self.album_group.set_allowed(allowed_albums)
         self.artist_group.set_allowed(allowed_artists)
 
         self.tree.delete(*self.tree.get_children())
-        self.shown_rows = [
-            row for row in self.rows
-            if self._matches(row, sel_g, sel_v, sel_e, sel_m, sel_ar, sel_al)
-        ]
+        self.shown_rows = [row for row in self.rows if self._matches(row, inc, exc)]
         for row in self.shown_rows:
             self.tree.insert("", "end", values=(
                 row["artist"], row["title"], row["album"], ", ".join(row["genres"]),
@@ -329,8 +422,8 @@ class App(ttk.Frame):
 
     # --- playlist creation -------------------------------------------------
     def _suggest_name(self) -> str:
-        parts = (list(self.vibe_group.selected()) + list(self.genre_group.selected())
-                 + list(self.energy_group.selected()) + list(self.mood_group.selected()))
+        parts = (list(self.vibe_group.included()) + list(self.genre_group.included())
+                 + list(self.energy_group.included()) + list(self.mood_group.included()))
         return " ".join(parts) if parts else "Filtered"
 
     def create_playlist(self) -> None:
