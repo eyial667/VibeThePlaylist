@@ -31,9 +31,28 @@ def available() -> bool:
     return bool(config.ANTHROPIC_API_KEY)
 
 
+def _sanitize_genres(raw, fallback: list[str]) -> list[str]:
+    """Keep only valid buckets, de-duped, max 2; fall back if the LLM gave none."""
+    allowed = set(config.GENRE_BUCKETS.keys()) | {config.DEFAULT_GENRE}
+    out: list[str] = []
+    for g in raw or []:
+        if g in allowed and g not in out:
+            out.append(g)
+        if len(out) == config.LLM_MAX_GENRES:
+            break
+    if not out:
+        out = fallback[: config.LLM_MAX_GENRES] or [config.DEFAULT_GENRE]
+    return out
+
+
 def classify_batch(tracks: list[dict]) -> list[dict]:
     """tracks: [{id, name, artist_name, genres:[...], tags:[...]}]
-    -> [{id, energy, moods:[], vibes:[]}].
+    -> [{id, genres:[...], energy, moods:[], vibes:[]}].
+
+    The LLM also picks the genre bucket(s): one by default, a second ONLY for a
+    genuine strong blend (never more than `config.LLM_MAX_GENRES`). Output genres
+    are validated against the bucket list and fall back to the track's existing
+    buckets if the model returns nothing usable.
 
     Requires `anthropic` installed and ANTHROPIC_API_KEY set. Imported lazily so
     the package is only needed when the LLM pass is actually used.
@@ -43,18 +62,22 @@ def classify_batch(tracks: list[dict]) -> list[dict]:
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     listing = "\n".join(
         f"{i+1}. {t['artist_name']} - {t['name']}"
-        f" [genre: {', '.join(t.get('genres', [])) or 'unknown'}]"
+        f" [candidate genres: {', '.join(t.get('genres', [])) or 'unknown'}]"
         f" (tags: {', '.join(t.get('tags', [])[:8]) or 'none'})"
         for i, t in enumerate(tracks)
     )
     prompt = (
         "Tag each track below. Choose:\n"
+        f"- genres: pick the SINGLE best-fitting bucket from {list(config.GENRE_BUCKETS.keys())}. "
+        f"Return a 2nd bucket ONLY if the track is a genuine strong blend of two; "
+        f"never return more than {config.LLM_MAX_GENRES}. Prefer one. The candidate "
+        "genres listed per track are noisy (artist-level) hints, not a requirement.\n"
         f"- energy: exactly one of {['low', 'mid', 'high']}\n"
         f"- moods: zero or more of {list(config.MOOD_TAGS.keys())}\n"
         f"- vibes: one or more of {list(config.VIBE_RULES.keys())}\n\n"
         "Return ONLY a JSON array, one object per track, with keys: "
-        "index (1-based int), energy (string), moods (array), vibes (array). "
-        "No prose, no markdown.\n\n"
+        "index (1-based int), genres (array of 1-2 strings), energy (string), "
+        "moods (array), vibes (array). No prose, no markdown.\n\n"
         f"{listing}"
     )
     msg = client.messages.create(
@@ -75,6 +98,7 @@ def classify_batch(tracks: list[dict]) -> list[dict]:
         if 0 <= idx < len(tracks):
             out.append({
                 "id": tracks[idx]["id"],
+                "genres": _sanitize_genres(obj.get("genres"), tracks[idx].get("genres", [])),
                 "energy": obj.get("energy"),
                 "moods": obj.get("moods", []) or [],
                 "vibes": obj.get("vibes", []) or [],
@@ -113,12 +137,6 @@ def refine(force: bool = False, progress=None) -> int:
     if not targets:
         return 0
 
-    with db.connect() as conn:
-        genres_by_id = {
-            r["track_id"]: r["genre_buckets"]
-            for r in conn.execute("SELECT track_id, genre_buckets FROM labels")
-        }
-
     now = datetime.now(timezone.utc).isoformat()
     refined = 0
     size = max(1, config.LLM_BATCH_SIZE)
@@ -128,7 +146,7 @@ def refine(force: bool = False, progress=None) -> int:
         rows = [
             {
                 "track_id": r["id"],
-                "genre_buckets": genres_by_id.get(r["id"], "[]"),  # keep genre
+                "genre_buckets": json.dumps(r["genres"]),  # LLM-refined, max 2
                 "energy_band": r["energy"],
                 "moods": json.dumps(r["moods"]),
                 "vibes": json.dumps(r["vibes"]),

@@ -148,6 +148,7 @@ SUBGENRE_ENERGY_HINTS: list[tuple[str, str]] = [
 
 # --- LLM refinement (cli.py llm) ---
 LLM_BATCH_SIZE = 40           # tracks per Claude request (keeps cost tiny)
+LLM_MAX_GENRES = 2            # cap genres the LLM assigns per track (prefers 1)
 
 # --- Enrichment knobs ---
 LASTFM_MAX_TAGS = 10          # top N tags to keep per track/artist
