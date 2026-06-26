@@ -35,12 +35,22 @@ for an architecture overview.
 4. **Open a pull request** against `main` with a clear description of **what**
    changed and **why** (link the related issue if there is one).
 
+## Continuous integration
+
+Every PR automatically runs the test suite via GitHub Actions
+([`.github/workflows/tests.yml`](.github/workflows/tests.yml)) on Python 3.11,
+3.12, and 3.13. These checks are **required**: a PR cannot be merged into `main`
+until all three `pytest` jobs pass, and your branch must be up to date with `main`
+first. `main` is a protected branch — all changes land through PRs (this applies
+to maintainers too). Run `python -m pytest` locally before pushing to catch
+failures early.
+
 ## Pull request requirements
 
 A PR should:
 
 - [ ] Pass the full test suite (`python -m pytest`) and include tests for any new
-      behavior.
+      behavior. CI (Python 3.11/3.12/3.13) must be green before merge.
 - [ ] Come from a feature branch via PR (no direct commits to `main`).
 - [ ] Have a description explaining the change and its motivation; reference the
       issue it addresses where applicable.
