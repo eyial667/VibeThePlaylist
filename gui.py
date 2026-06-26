@@ -1,8 +1,9 @@
 """Desktop GUI for browsing your classified library.
 
 Shows every possible genre, vibe, energy band, and mood (straight from config.py)
-as checkboxes, plus searchable scrollable checkbox lists of artists and albums.
-Pick any combination and the table updates live to show matching liked songs.
+as checkboxes, plus searchable scrollable checkbox lists of artists and albums
+(which cross-filter each other: picking artists narrows the albums to theirs, and
+vice versa). Pick any combination and the table updates live to show matches.
 
     conda activate Spotify
     python gui.py
@@ -96,6 +97,7 @@ class CheckListGroup(ttk.LabelFrame):
         self.all_options = sorted(o for o in options if o)
         self.vars: dict[str, tk.BooleanVar] = {o: tk.BooleanVar(value=False)
                                                for o in self.all_options}
+        self.allowed: set[str] | None = None  # cross-filter restriction (None = all)
 
         self.search_var = tk.StringVar()
         ttk.Entry(self, textvariable=self.search_var, width=width).pack(fill="x")
@@ -142,11 +144,25 @@ class CheckListGroup(ttk.LabelFrame):
         elif getattr(event, "num", None) == 5 or getattr(event, "delta", 0) < 0:
             self.canvas.yview_scroll(1, "units")
 
+    def set_allowed(self, allowed: set[str] | None) -> None:
+        """Restrict which options are offered (cross-filter from another panel).
+        Does not fire on_change; re-renders in place."""
+        self.allowed = allowed
+        self._render()
+
+    def _visible(self, o: str, q: str) -> bool:
+        if q and q not in o.lower():
+            return False
+        # cross-filter hides options not allowed — unless already ticked
+        if self.allowed is not None and o not in self.allowed and not self.vars[o].get():
+            return False
+        return True
+
     def _render(self) -> None:
         for w in self.inner.winfo_children():
             w.destroy()
         q = self.search_var.get().strip().lower()
-        matches = [o for o in self.all_options if q in o.lower()] if q else self.all_options
+        matches = [o for o in self.all_options if self._visible(o, q)]
         # selected first so ticked items are never hidden by the cap
         matches.sort(key=lambda o: (not self.vars[o].get(), o.lower()))
         shown = matches[: self.RENDER_CAP]
@@ -202,6 +218,14 @@ class App(ttk.Frame):
 
         artists = sorted({r["artist"] for r in self.rows if r["artist"]})
         albums = sorted({r["album"] for r in self.rows if r["album"]})
+        # cross-filter maps: which albums each artist appears on, and vice versa
+        self.artist_albums: dict[str, set[str]] = {}
+        self.album_artists: dict[str, set[str]] = {}
+        for r in self.rows:
+            a, al = r["artist"], r["album"]
+            if a and al:
+                self.artist_albums.setdefault(a, set()).add(al)
+                self.album_artists.setdefault(al, set()).add(a)
         self.artist_group = CheckListGroup(filters, "Artists", artists, self.refresh)
         self.artist_group.pack(side="left", fill="both", padx=8)
         self.album_group = CheckListGroup(filters, "Albums", albums, self.refresh)
@@ -281,6 +305,15 @@ class App(ttk.Frame):
         sel_m = self.mood_group.selected()
         sel_ar = self.artist_group.selected()
         sel_al = self.album_group.selected()
+
+        # cross-filter the panels: albums limited to selected artists' albums, and
+        # artists limited to selected albums' artists (None = no restriction)
+        allowed_albums = set().union(*(self.artist_albums.get(a, set()) for a in sel_ar)) \
+            if sel_ar else None
+        allowed_artists = set().union(*(self.album_artists.get(al, set()) for al in sel_al)) \
+            if sel_al else None
+        self.album_group.set_allowed(allowed_albums)
+        self.artist_group.set_allowed(allowed_artists)
 
         self.tree.delete(*self.tree.get_children())
         self.shown_rows = [
