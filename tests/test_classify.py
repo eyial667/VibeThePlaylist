@@ -18,6 +18,7 @@ def test_match_buckets_unknown_genre_is_default():
 
 def test_match_buckets_multi_label(monkeypatch):
     monkeypatch.setattr(config, "MULTI_LABEL", True)
+    monkeypatch.setattr(config, "MAX_GENRES", 2)
     result = classify._match_buckets(["jazz", "hip hop"])
     assert set(result) == {"Jazz", "Hip-hop/Rap"}
 
@@ -26,6 +27,22 @@ def test_match_buckets_single_label(monkeypatch):
     monkeypatch.setattr(config, "MULTI_LABEL", False)
     result = classify._match_buckets(["jazz", "hip hop"])
     assert len(result) == 1
+
+
+def test_match_buckets_caps_to_max_genres(monkeypatch):
+    monkeypatch.setattr(config, "MULTI_LABEL", True)
+    monkeypatch.setattr(config, "MAX_GENRES", 2)
+    # five raw genres touching 3+ buckets -> capped to 2
+    result = classify._match_buckets(["french hip hop", "rap", "trap", "pop urbaine", "hardcore"])
+    assert len(result) == 2
+
+
+def test_match_buckets_ranks_by_hit_strength(monkeypatch):
+    monkeypatch.setattr(config, "MULTI_LABEL", True)
+    monkeypatch.setattr(config, "MAX_GENRES", 1)
+    # Hip-hop/Rap has 3 needle hits vs Pop's incidental 1 ('pop' in 'pop urbaine')
+    result = classify._match_buckets(["french hip hop", "rap", "trap", "pop urbaine"])
+    assert result == ["Hip-hop/Rap"]
 
 
 # --- moods -----------------------------------------------------------------

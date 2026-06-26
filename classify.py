@@ -13,15 +13,26 @@ import db
 
 
 def _match_buckets(raw_genres: list[str]) -> list[str]:
+    """Pick genre buckets, strongest first, capped to avoid noisy over-labelling.
+
+    Each bucket is scored by how many of its needles appear in the track's raw
+    genres/tags, so a bucket backed by several hits (e.g. 'hip hop' + 'rap' +
+    'trap') outranks an incidental single-needle match (e.g. 'pop' inside
+    'pop urbaine'). Keeps at most config.MAX_GENRES (1 when MULTI_LABEL is off).
+    """
     hay = " | ".join(g.lower() for g in raw_genres)
-    matched = [
-        bucket
+    scored = [
+        (sum(1 for n in needles if n in hay), bucket)
         for bucket, needles in config.GENRE_BUCKETS.items()
-        if any(n in hay for n in needles)
     ]
-    if not matched:
+    scored = [(hits, bucket) for hits, bucket in scored if hits]
+    if not scored:
         return [config.DEFAULT_GENRE]
-    return matched if config.MULTI_LABEL else matched[:1]
+    # stable sort by hit-count desc -> ties keep config (priority) order
+    scored.sort(key=lambda x: -x[0])
+    ordered = [bucket for _, bucket in scored]
+    cap = config.MAX_GENRES if config.MULTI_LABEL else 1
+    return ordered[:cap]
 
 
 def _match_moods(tags: list[str]) -> list[str]:
