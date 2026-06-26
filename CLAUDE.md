@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Secrets — do not read `.env`
+
+**Never read, open, print, or otherwise access the contents of the `.env` file.** It
+holds live credentials (Spotify client secret, Last.fm key, optional Anthropic key).
+If you need to know which variables exist, read `.env.example` (the safe template) or
+`config.py` (where they are loaded) instead. The same applies to the Spotify token
+cache under `data/`. These are gitignored and must never be committed or echoed.
+
 ## Environment
 
 Always run Python through the project's conda env — it is where dependencies live:
@@ -93,3 +101,22 @@ fetch (spotify_client) -> enrich (spotify_client + enrich) -> classify -> {query
 - Network stages must stay incremental: when adding a data source, add a `*_missing_*`
   helper and only process those rows.
 - `.env`, `data/`, and the Spotify token cache are gitignored and must never be committed.
+- `main` is a protected branch: no direct pushes. Land every change via a feature branch
+  + PR; the required `pytest` checks (Python 3.11/3.12/3.13) must pass before merge.
+
+## Next feature — Spotify auth & web app
+
+The next planned feature turns this single-user local tool into a multi-user **web app**
+where each user logs in with their own Spotify account. Full task breakdown lives in
+`docs/TODO-webapp-auth.md` (on the `feature/spotify-auth-webapp` branch). Key points:
+
+- Replace the desktop OAuth + file token cache (`data/.spotify_token_cache`) with the
+  web **Authorization Code flow**: `/login`, `/callback`, `/logout` routes, `state`
+  (CSRF) validation, and refresh-token handling.
+- Store tokens **per user/session** via a custom Spotipy `CacheHandler` (not the shared
+  file), so libraries and credentials don't collide.
+- Refactor `spotify_client.get_client()` to accept an **injected token source** so the
+  CLI and web backend share the existing fetch/enrich/classify/playlists pipeline
+  unchanged; scope the SQLite store per user.
+- Port the Tkinter filter/table/create-playlist UI to the browser.
+- The `audio-features` capability probe and tag-based fallback carry over as-is.
