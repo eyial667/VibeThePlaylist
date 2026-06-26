@@ -85,8 +85,30 @@ def cmd_enrich(args) -> None:
 
 def cmd_classify(args) -> None:
     db.init()
-    n = classify.classify_all()
+    n = classify.classify_all(overwrite_llm=getattr(args, "overwrite_llm", False))
     print(f"Classified {n} track(s).")
+
+
+def cmd_llm(args) -> None:
+    db.init()
+    import llm
+    if not llm.available():
+        print("ANTHROPIC_API_KEY not set — add it to .env to use the LLM pass. "
+              "(The free genre fallback already gives full coverage.)")
+        return
+    bar = tqdm(total=0, desc="llm refine")
+
+    def progress(done, total):
+        bar.total = total
+        bar.n = done
+        bar.refresh()
+
+    n = llm.refine(force=args.force, progress=progress)
+    bar.close()
+    if n == 0:
+        print("Nothing to refine — all tracks already LLM-classified. Use --force to redo.")
+    else:
+        print(f"LLM-refined {n} track(s).")
 
 
 def cmd_playlists(args) -> None:
@@ -139,8 +161,15 @@ def main() -> None:
 
     sub.add_parser("fetch").set_defaults(func=cmd_fetch)
     sub.add_parser("enrich").set_defaults(func=cmd_enrich)
-    sub.add_parser("classify").set_defaults(func=cmd_classify)
+    cl = sub.add_parser("classify")
+    cl.add_argument("--overwrite-llm", action="store_true",
+                    help="reclassify everything, discarding LLM-refined labels")
+    cl.set_defaults(func=cmd_classify)
     sub.add_parser("all").set_defaults(func=cmd_all)
+
+    lm = sub.add_parser("llm", help="refine mood/energy/vibe with Claude (needs ANTHROPIC_API_KEY)")
+    lm.add_argument("--force", action="store_true", help="re-refine all tracks, even already-done ones")
+    lm.set_defaults(func=cmd_llm)
 
     pl = sub.add_parser("playlists")
     pl.add_argument("--dry-run", action="store_true", help="show clusters without writing")

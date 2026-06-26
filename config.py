@@ -103,6 +103,52 @@ VIBE_RULES: dict[str, list[dict]] = {
 }
 DEFAULT_VIBE = "Unsorted"
 
+# --- Genre-based fallback --------------------------------------------------
+# When audio-features are unavailable AND Last.fm tags carry no mood signal
+# (common for e.g. rap/hip-hop libraries), classification falls back to these
+# per-bucket defaults so energy and vibes are never empty. Coarse by design;
+# the optional LLM pass (cli.py llm) refines these per-track.
+GENRE_ENERGY: dict[str, str] = {
+    "Hip-hop/Rap": "high",
+    "R&B/Soul": "low",
+    "Electronic": "high",
+    "Pop": "mid",
+    "Rock": "high",
+    "Metal": "high",
+    "Jazz": "low",
+    "Classical": "low",
+    "Folk/Acoustic": "low",
+    "Latin": "high",
+    "Reggae/Dub": "mid",
+    "Ambient/Lo-fi": "low",
+    "Other": "mid",
+}
+GENRE_VIBES: dict[str, list[str]] = {
+    "Hip-hop/Rap": ["Workout", "Party"],
+    "R&B/Soul": ["Chill", "Late-night"],
+    "Electronic": ["Party", "Workout"],
+    "Pop": ["Feel-good", "Party"],
+    "Rock": ["Workout"],
+    "Metal": ["Workout"],
+    "Jazz": ["Focus/Study", "Late-night"],
+    "Classical": ["Focus/Study"],
+    "Folk/Acoustic": ["Chill"],
+    "Latin": ["Party"],
+    "Reggae/Dub": ["Chill"],
+    "Ambient/Lo-fi": ["Focus/Study", "Chill"],
+    "Other": ["Feel-good"],
+}
+# A few sub-genre tag hints that override the bucket energy default (free, no LLM).
+# Matched as substrings against a track's Last.fm tags.
+SUBGENRE_ENERGY_HINTS: list[tuple[str, str]] = [
+    ("cloud rap", "mid"), ("lo-fi", "low"), ("lofi", "low"), ("boom bap", "mid"),
+    ("ambient", "low"), ("drill", "high"), ("trap", "high"), ("hardcore", "high"),
+    ("ballad", "low"), ("acoustic", "low"), ("slow", "low"),
+]
+
+# --- LLM refinement (cli.py llm) ---
+LLM_BATCH_SIZE = 40           # tracks per Claude request (keeps cost tiny)
+
 # --- Enrichment knobs ---
 LASTFM_MAX_TAGS = 10          # top N tags to keep per track/artist
 LASTFM_MIN_TAG_WEIGHT = 5     # ignore tags below this Last.fm weight (0-100)
