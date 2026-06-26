@@ -1,8 +1,8 @@
 """Desktop GUI for browsing your classified library.
 
 Shows every possible genre, vibe, energy band, and mood (straight from config.py)
-as checkboxes, plus searchable multi-select lists of artists and albums. Pick any
-combination and the table updates live to show matching liked songs.
+as checkboxes, plus searchable scrollable checkbox lists of artists and albums.
+Pick any combination and the table updates live to show matching liked songs.
 
     conda activate Spotify
     python gui.py
@@ -81,82 +81,100 @@ class CheckGroup(ttk.LabelFrame):
         return {opt for opt, var in self.vars.items() if var.get()}
 
 
-class SearchableListGroup(ttk.LabelFrame):
-    """A filter box + scrollable multi-select list, for high-cardinality fields
-    (artists, albums) where checkboxes are impractical. Type to narrow the list;
-    selections persist across searches. Ctrl/Shift-click for multi-select."""
+class CheckListGroup(ttk.LabelFrame):
+    """A scrollable list of checkboxes (one per option) with a search box, for
+    high-cardinality fields like artists/albums. Tick boxes to select; selections
+    persist while you search. Selected items are shown first; the visible list is
+    capped for responsiveness (narrow it by typing)."""
+
+    RENDER_CAP = 300  # max checkboxes drawn at once (selected ones always shown)
 
     def __init__(self, master, title: str, options: list[str], on_change,
-                 height: int = 9, width: int = 26):
+                 width: int = 26, canvas_height: int = 210):
         super().__init__(master, text=title, padding=6)
-        self.all_options = sorted(o for o in options if o)
         self.on_change = on_change
-        self._selected: set[str] = set()
-        self._shown: list[str] = []
+        self.all_options = sorted(o for o in options if o)
+        self.vars: dict[str, tk.BooleanVar] = {o: tk.BooleanVar(value=False)
+                                               for o in self.all_options}
 
         self.search_var = tk.StringVar()
         ttk.Entry(self, textvariable=self.search_var, width=width).pack(fill="x")
-        self.search_var.trace_add("write", lambda *_: self._refilter())
-
-        box = ttk.Frame(self)
-        box.pack(fill="both", expand=True, pady=(4, 0))
-        self.listbox = tk.Listbox(box, selectmode="extended", height=height,
-                                  width=width, exportselection=False, activestyle="none")
-        sb = ttk.Scrollbar(box, orient="vertical", command=self.listbox.yview)
-        self.listbox.configure(yscrollcommand=sb.set)
-        self.listbox.pack(side="left", fill="both", expand=True)
-        sb.pack(side="left", fill="y")
-        self.listbox.bind("<<ListboxSelect>>", lambda _e: self._on_select())
+        self.search_var.trace_add("write", lambda *_: self._render())
 
         bar = ttk.Frame(self)
-        bar.pack(fill="x", pady=(4, 0))
+        bar.pack(side="bottom", fill="x", pady=(4, 0))
         self.count_lbl = ttk.Label(bar, text="")
         self.count_lbl.pack(side="left")
         ttk.Button(bar, text="Clear", width=6, command=self.clear).pack(side="right")
 
-        self._populate(self.all_options)
+        mid = ttk.Frame(self)
+        mid.pack(side="top", fill="both", expand=True, pady=(4, 0))
+        self.canvas = tk.Canvas(mid, height=canvas_height, highlightthickness=0,
+                                width=width * 8)
+        sb = ttk.Scrollbar(mid, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=sb.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y")
+        self.inner = ttk.Frame(self.canvas)
+        self._win = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
+        self.inner.bind("<Configure>",
+                        lambda _e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.canvas.bind("<Configure>",
+                         lambda e: self.canvas.itemconfig(self._win, width=e.width))
+        # mouse-wheel scrolling only while the pointer is over this list
+        self.canvas.bind("<Enter>", lambda _e: self._bind_wheel())
+        self.canvas.bind("<Leave>", lambda _e: self._unbind_wheel())
 
-    def _populate(self, options: list[str]) -> None:
-        self._shown = options
-        self.listbox.delete(0, "end")
-        for o in options:
-            self.listbox.insert("end", o)
-        for i, o in enumerate(options):
-            if o in self._selected:
-                self.listbox.selection_set(i)
+        self._render()
+
+    def _bind_wheel(self) -> None:
+        self.canvas.bind_all("<MouseWheel>", self._on_wheel)   # Windows / macOS
+        self.canvas.bind_all("<Button-4>", self._on_wheel)     # Linux scroll up
+        self.canvas.bind_all("<Button-5>", self._on_wheel)     # Linux scroll down
+
+    def _unbind_wheel(self) -> None:
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.canvas.unbind_all(seq)
+
+    def _on_wheel(self, event) -> None:
+        if getattr(event, "num", None) == 4 or getattr(event, "delta", 0) > 0:
+            self.canvas.yview_scroll(-1, "units")
+        elif getattr(event, "num", None) == 5 or getattr(event, "delta", 0) < 0:
+            self.canvas.yview_scroll(1, "units")
+
+    def _render(self) -> None:
+        for w in self.inner.winfo_children():
+            w.destroy()
+        q = self.search_var.get().strip().lower()
+        matches = [o for o in self.all_options if q in o.lower()] if q else self.all_options
+        # selected first so ticked items are never hidden by the cap
+        matches.sort(key=lambda o: (not self.vars[o].get(), o.lower()))
+        shown = matches[: self.RENDER_CAP]
+        for o in shown:
+            ttk.Checkbutton(self.inner, text=o, variable=self.vars[o],
+                            command=self._on_toggle).pack(anchor="w", fill="x")
+        if len(matches) > len(shown):
+            ttk.Label(self.inner, foreground="gray",
+                      text=f"… {len(matches) - len(shown)} more — type to narrow").pack(anchor="w")
+        self.canvas.yview_moveto(0)
         self._update_count()
 
-    def _sync_from_view(self) -> None:
-        """Fold the current listbox selection back into the persistent set."""
-        shown_selected = {self._shown[i] for i in self.listbox.curselection()}
-        for o in self._shown:           # forget any shown items now unselected
-            self._selected.discard(o)
-        self._selected |= shown_selected
-
-    def _on_select(self) -> None:
-        self._sync_from_view()
+    def _on_toggle(self) -> None:
         self._update_count()
         self.on_change()
 
-    def _refilter(self) -> None:
-        self._sync_from_view()
-        q = self.search_var.get().strip().lower()
-        opts = [o for o in self.all_options if q in o.lower()] if q else self.all_options
-        self._populate(opts)
-
     def _update_count(self) -> None:
-        n = len(self._selected)
+        n = sum(1 for v in self.vars.values() if v.get())
         self.count_lbl.config(text=f"{n} selected" if n else "")
 
     def clear(self) -> None:
-        self._selected.clear()
-        self.listbox.selection_clear(0, "end")
-        self._update_count()
+        for v in self.vars.values():
+            v.set(False)
+        self._render()
         self.on_change()
 
     def selected(self) -> set[str]:
-        self._sync_from_view()
-        return set(self._selected)
+        return {o for o, v in self.vars.items() if v.get()}
 
 
 class App(ttk.Frame):
@@ -184,10 +202,10 @@ class App(ttk.Frame):
 
         artists = sorted({r["artist"] for r in self.rows if r["artist"]})
         albums = sorted({r["album"] for r in self.rows if r["album"]})
-        self.artist_group = SearchableListGroup(filters, "Artists", artists, self.refresh)
-        self.artist_group.pack(side="left", fill="y", padx=8)
-        self.album_group = SearchableListGroup(filters, "Albums", albums, self.refresh)
-        self.album_group.pack(side="left", fill="y", padx=8)
+        self.artist_group = CheckListGroup(filters, "Artists", artists, self.refresh)
+        self.artist_group.pack(side="left", fill="both", padx=8)
+        self.album_group = CheckListGroup(filters, "Albums", albums, self.refresh)
+        self.album_group.pack(side="left", fill="both", padx=8)
 
         # --- middle: controls ---
         controls = ttk.Frame(self)
