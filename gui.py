@@ -1,7 +1,8 @@
 """Desktop GUI for browsing your classified library.
 
 Shows every possible genre, vibe, energy band, and mood (straight from config.py)
-as checkboxes. Pick any combination and hit Search to see matching liked songs.
+as checkboxes, plus searchable multi-select lists of artists and albums. Pick any
+combination and the table updates live to show matching liked songs.
 
     conda activate Spotify
     python gui.py
@@ -32,8 +33,9 @@ def load_rows() -> list[dict]:
         db.init()
         with db.connect() as conn:
             rows = conn.execute(
-                "SELECT t.id, t.artist_name, t.name, l.genre_buckets, l.energy_band, "
-                "l.moods, l.vibes FROM labels l JOIN tracks t ON t.id = l.track_id"
+                "SELECT t.id, t.artist_name, t.name, t.album, l.genre_buckets, "
+                "l.energy_band, l.moods, l.vibes "
+                "FROM labels l JOIN tracks t ON t.id = l.track_id"
             ).fetchall()
     except Exception:
         return []
@@ -43,6 +45,7 @@ def load_rows() -> list[dict]:
             "id": r["id"],
             "artist": r["artist_name"],
             "title": r["name"],
+            "album": r["album"] or "",
             "genres": json.loads(r["genre_buckets"] or "[]"),
             "energy": r["energy_band"],
             "moods": json.loads(r["moods"] or "[]"),
@@ -78,6 +81,84 @@ class CheckGroup(ttk.LabelFrame):
         return {opt for opt, var in self.vars.items() if var.get()}
 
 
+class SearchableListGroup(ttk.LabelFrame):
+    """A filter box + scrollable multi-select list, for high-cardinality fields
+    (artists, albums) where checkboxes are impractical. Type to narrow the list;
+    selections persist across searches. Ctrl/Shift-click for multi-select."""
+
+    def __init__(self, master, title: str, options: list[str], on_change,
+                 height: int = 9, width: int = 26):
+        super().__init__(master, text=title, padding=6)
+        self.all_options = sorted(o for o in options if o)
+        self.on_change = on_change
+        self._selected: set[str] = set()
+        self._shown: list[str] = []
+
+        self.search_var = tk.StringVar()
+        ttk.Entry(self, textvariable=self.search_var, width=width).pack(fill="x")
+        self.search_var.trace_add("write", lambda *_: self._refilter())
+
+        box = ttk.Frame(self)
+        box.pack(fill="both", expand=True, pady=(4, 0))
+        self.listbox = tk.Listbox(box, selectmode="extended", height=height,
+                                  width=width, exportselection=False, activestyle="none")
+        sb = ttk.Scrollbar(box, orient="vertical", command=self.listbox.yview)
+        self.listbox.configure(yscrollcommand=sb.set)
+        self.listbox.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y")
+        self.listbox.bind("<<ListboxSelect>>", lambda _e: self._on_select())
+
+        bar = ttk.Frame(self)
+        bar.pack(fill="x", pady=(4, 0))
+        self.count_lbl = ttk.Label(bar, text="")
+        self.count_lbl.pack(side="left")
+        ttk.Button(bar, text="Clear", width=6, command=self.clear).pack(side="right")
+
+        self._populate(self.all_options)
+
+    def _populate(self, options: list[str]) -> None:
+        self._shown = options
+        self.listbox.delete(0, "end")
+        for o in options:
+            self.listbox.insert("end", o)
+        for i, o in enumerate(options):
+            if o in self._selected:
+                self.listbox.selection_set(i)
+        self._update_count()
+
+    def _sync_from_view(self) -> None:
+        """Fold the current listbox selection back into the persistent set."""
+        shown_selected = {self._shown[i] for i in self.listbox.curselection()}
+        for o in self._shown:           # forget any shown items now unselected
+            self._selected.discard(o)
+        self._selected |= shown_selected
+
+    def _on_select(self) -> None:
+        self._sync_from_view()
+        self._update_count()
+        self.on_change()
+
+    def _refilter(self) -> None:
+        self._sync_from_view()
+        q = self.search_var.get().strip().lower()
+        opts = [o for o in self.all_options if q in o.lower()] if q else self.all_options
+        self._populate(opts)
+
+    def _update_count(self) -> None:
+        n = len(self._selected)
+        self.count_lbl.config(text=f"{n} selected" if n else "")
+
+    def clear(self) -> None:
+        self._selected.clear()
+        self.listbox.selection_clear(0, "end")
+        self._update_count()
+        self.on_change()
+
+    def selected(self) -> set[str]:
+        self._sync_from_view()
+        return set(self._selected)
+
+
 class App(ttk.Frame):
     def __init__(self, master):
         super().__init__(master, padding=10)
@@ -101,6 +182,13 @@ class App(ttk.Frame):
         self.mood_group = CheckGroup(right, "Moods", MOODS, self.refresh)
         self.mood_group.pack(fill="x", pady=(8, 0))
 
+        artists = sorted({r["artist"] for r in self.rows if r["artist"]})
+        albums = sorted({r["album"] for r in self.rows if r["album"]})
+        self.artist_group = SearchableListGroup(filters, "Artists", artists, self.refresh)
+        self.artist_group.pack(side="left", fill="y", padx=8)
+        self.album_group = SearchableListGroup(filters, "Albums", albums, self.refresh)
+        self.album_group.pack(side="left", fill="y", padx=8)
+
         # --- middle: controls ---
         controls = ttk.Frame(self)
         controls.pack(fill="x", pady=8)
@@ -120,9 +208,10 @@ class App(ttk.Frame):
                   font=("TkDefaultFont", 10, "bold")).pack(side="right")
 
         # --- bottom: results table ---
-        cols = ("artist", "title", "genres", "energy", "vibes")
+        cols = ("artist", "title", "album", "genres", "energy", "vibes")
         self.tree = ttk.Treeview(self, columns=cols, show="headings", height=18)
-        widths = {"artist": 160, "title": 230, "genres": 180, "energy": 70, "vibes": 200}
+        widths = {"artist": 150, "title": 200, "album": 170,
+                  "genres": 150, "energy": 60, "vibes": 180}
         for c in cols:
             self.tree.heading(c, text=c.capitalize())
             self.tree.column(c, width=widths[c], anchor="w")
@@ -144,9 +233,11 @@ class App(ttk.Frame):
         for group in (self.genre_group, self.vibe_group, self.energy_group, self.mood_group):
             for var in group.vars.values():
                 var.set(False)
+        self.artist_group.clear()
+        self.album_group.clear()
         self.refresh()
 
-    def _matches(self, row: dict, sel_g, sel_v, sel_e, sel_m) -> bool:
+    def _matches(self, row: dict, sel_g, sel_v, sel_e, sel_m, sel_ar, sel_al) -> bool:
         any_mode = self.match_mode.get() == "any"
         checks = []
         if sel_g:
@@ -157,6 +248,10 @@ class App(ttk.Frame):
             checks.append(row["energy"] in sel_e)
         if sel_m:
             checks.append(bool(sel_m & set(row["moods"])))
+        if sel_ar:
+            checks.append(row["artist"] in sel_ar)
+        if sel_al:
+            checks.append(row["album"] in sel_al)
         if not checks:
             return True  # nothing selected -> show everything
         return any(checks) if any_mode else all(checks)
@@ -166,15 +261,17 @@ class App(ttk.Frame):
         sel_v = self.vibe_group.selected()
         sel_e = self.energy_group.selected()
         sel_m = self.mood_group.selected()
+        sel_ar = self.artist_group.selected()
+        sel_al = self.album_group.selected()
 
         self.tree.delete(*self.tree.get_children())
         self.shown_rows = [
             row for row in self.rows
-            if self._matches(row, sel_g, sel_v, sel_e, sel_m)
+            if self._matches(row, sel_g, sel_v, sel_e, sel_m, sel_ar, sel_al)
         ]
         for row in self.shown_rows:
             self.tree.insert("", "end", values=(
-                row["artist"], row["title"], ", ".join(row["genres"]),
+                row["artist"], row["title"], row["album"], ", ".join(row["genres"]),
                 row["energy"] or "?", ", ".join(row["vibes"]),
             ))
         self.count_var.set(f"{len(self.shown_rows)} / {len(self.rows)} tracks")
@@ -224,7 +321,7 @@ class App(ttk.Frame):
 def main() -> None:
     root = tk.Tk()
     root.title("Spotify Liked-Songs — Genre / Vibe Browser")
-    root.geometry("1080x680")
+    root.geometry("1480x720")
     App(root)
     root.mainloop()
 
