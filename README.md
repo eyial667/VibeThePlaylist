@@ -50,6 +50,10 @@ python cli.py fetch
 python cli.py enrich
 python cli.py classify
 
+# optional: refine mood/energy/vibe with Claude (needs ANTHROPIC_API_KEY)
+python cli.py llm                 # only processes tracks not yet LLM-refined (cached)
+python cli.py llm --force         # re-refine everything
+
 # explore your library:
 python cli.py query --vibe Chill --genre Jazz
 python cli.py query --energy high --limit 30
@@ -81,13 +85,25 @@ Everything is cached in `data/library.db`. Re-runs only fetch/enrich **newly
 liked** tracks. Playlist sync is **idempotent** — playlists are matched by name
 (prefix `🤖 `) and updated in place rather than duplicated.
 
+## Energy & vibe coverage
+
+When Spotify audio-features are blocked (apps created after late 2024) **and**
+Last.fm tags carry no mood signal — common for rap/hip-hop libraries — there's
+nothing for mood/energy rules to match. To avoid empty energy/vibes, classification
+falls back to per-genre defaults (`GENRE_ENERGY` / `GENRE_VIBES` in `config.py`)
+plus a few sub-genre tag hints (`SUBGENRE_ENERGY_HINTS`), so **energy and vibe are
+never empty**. This fallback is coarse (every track in a genre gets a similar
+default); run `python cli.py llm` to refine mood/energy/vibe **per track** with
+Claude. LLM results are cached (method `llm`) and preserved by later `classify` runs.
+
 ## Tuning
 Open `config.py`:
 - `GENRE_BUCKETS` — fold fine genres into your coarse buckets.
 - `MOOD_TAGS`, `ENERGY_BANDS`, `VIBE_RULES` — define what each vibe means.
+- `GENRE_ENERGY`, `GENRE_VIBES`, `SUBGENRE_ENERGY_HINTS` — the coverage fallback.
 - `PLAYLIST_SCHEMES` — any of `["vibe", "genre", "combined"]`.
 - `MIN_TRACKS_PER_PLAYLIST`, `PLAYLIST_PREFIX`, `PLAYLIST_VISIBILITY_PUBLIC`,
-  `MULTI_LABEL`, `USE_LLM`.
+  `MULTI_LABEL`, `USE_LLM`, `LLM_BATCH_SIZE`.
 
 After editing, just re-run `python cli.py classify` (and `playlists`) — no need
 to re-fetch.
