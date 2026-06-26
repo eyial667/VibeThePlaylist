@@ -59,8 +59,9 @@ def load_rows() -> list[dict]:
 
 # --- tri-state selection: each option is off / include (✓) / exclude (✗) -----
 INCLUDE, EXCLUDE = "include", "exclude"
-_MARK = {None: "☐", INCLUDE: "✓", EXCLUDE: "✗"}
-_FG = {None: "gray40", INCLUDE: "#1a7f37", EXCLUDE: "#cf222e"}
+# off shows no marker (blank, to keep text aligned); only active states get a glyph
+_MARK = {None: "  ", INCLUDE: "✓", EXCLUDE: "✗"}
+_FG = {None: "black", INCLUDE: "#1a7f37", EXCLUDE: "#cf222e"}
 
 
 class TriState:
@@ -356,7 +357,7 @@ class App(ttk.Frame):
         self.count_var = tk.StringVar()
         ttk.Label(controls, textvariable=self.count_var,
                   font=("TkDefaultFont", 10, "bold")).pack(side="right")
-        ttk.Label(controls, text="click cycles  ☐ off → ✓ include → ✗ exclude",
+        ttk.Label(controls, text="click cycles:  off → ✓ include → ✗ exclude",
                   foreground="gray40").pack(side="right", padx=12)
 
         # --- bottom: results table ---
