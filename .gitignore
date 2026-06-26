@@ -1,0 +1,27 @@
+# --- Secrets & credentials ---
+.env
+.env.*
+!.env.example
+.spotify_token_cache
+
+# --- Generated data ---
+data/
+*.db
+*.log
+
+# --- Python ---
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+
+# --- Conda / environment files ---
+environment.yml
+.conda/
+conda-meta/
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
