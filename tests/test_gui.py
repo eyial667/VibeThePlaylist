@@ -22,6 +22,7 @@ def test_load_rows_returns_track_ids_and_labels(seeded_db):
     assert "t1" in by_id and "t2" in by_id
     assert by_id["t1"]["genres"] == ["Electronic"]
     assert "Workout" in by_id["t1"]["vibes"]
+    assert by_id["t1"]["album"] == "A"  # album loaded for the artist/album filters
 
 
 def test_load_rows_empty_when_no_labels(temp_db):
