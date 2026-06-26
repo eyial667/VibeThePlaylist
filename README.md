@@ -93,8 +93,11 @@ nothing for mood/energy rules to match. To avoid empty energy/vibes, classificat
 falls back to per-genre defaults (`GENRE_ENERGY` / `GENRE_VIBES` in `config.py`)
 plus a few sub-genre tag hints (`SUBGENRE_ENERGY_HINTS`), so **energy and vibe are
 never empty**. This fallback is coarse (every track in a genre gets a similar
-default); run `python cli.py llm` to refine mood/energy/vibe **per track** with
-Claude. LLM results are cached (method `llm`) and preserved by later `classify` runs.
+default); run `python cli.py llm` to refine genre, mood, energy, and vibe
+**per track** with Claude. The LLM picks the single best genre bucket (a second
+only for a genuine blend, capped by `LLM_MAX_GENRES`), which fixes the
+"3–7 genres per track" noise from artist-level Spotify genres. LLM results are
+cached (method `llm`) and preserved by later `classify` runs.
 
 ## Tuning
 Open `config.py`:

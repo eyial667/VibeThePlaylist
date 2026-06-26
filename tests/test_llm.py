@@ -23,14 +23,14 @@ def test_available(monkeypatch):
     assert llm.available() is True
 
 
-def test_refine_writes_llm_labels_and_preserves_genre(temp_db, monkeypatch):
+def test_refine_writes_llm_labels_including_genre(temp_db, monkeypatch):
     _seed_classified_rap()
 
     def fake_batch(tracks):
-        # one result per input track; assert we were handed genres + tags
+        # one result per input track; assert we were handed candidate genres + tags
         assert tracks[0]["genres"] == ["Hip-hop/Rap"]
-        return [{"id": t["id"], "energy": "high", "moods": ["aggressive"],
-                 "vibes": ["Workout", "Party"]} for t in tracks]
+        return [{"id": t["id"], "genres": ["Hip-hop/Rap"], "energy": "high",
+                 "moods": ["aggressive"], "vibes": ["Workout", "Party"]} for t in tracks]
 
     monkeypatch.setattr(llm, "classify_batch", fake_batch)
     n = llm.refine()
@@ -40,7 +40,17 @@ def test_refine_writes_llm_labels_and_preserves_genre(temp_db, monkeypatch):
     assert row["method"] == "llm"
     assert row["energy_band"] == "high"
     assert json.loads(row["moods"]) == ["aggressive"]
-    assert json.loads(row["genre_buckets"]) == ["Hip-hop/Rap"]  # genre preserved
+    assert json.loads(row["genre_buckets"]) == ["Hip-hop/Rap"]  # LLM-assigned genre
+
+
+def test_sanitize_genres_caps_and_validates(monkeypatch):
+    monkeypatch.setattr(config, "LLM_MAX_GENRES", 2)
+    # invalid bucket dropped, dupes removed, capped at 2
+    assert llm._sanitize_genres(["Jazz", "NotABucket", "Jazz", "Rock", "Pop"], []) == ["Jazz", "Rock"]
+    # nothing valid -> fall back to candidate buckets (also capped)
+    assert llm._sanitize_genres(["bogus"], ["Hip-hop/Rap", "Pop", "Rock"]) == ["Hip-hop/Rap", "Pop"]
+    # empty everything -> DEFAULT_GENRE
+    assert llm._sanitize_genres([], []) == [config.DEFAULT_GENRE]
 
 
 def test_refine_is_cached_and_force_redoes(temp_db, monkeypatch):
@@ -49,7 +59,8 @@ def test_refine_is_cached_and_force_redoes(temp_db, monkeypatch):
 
     def fake_batch(tracks):
         calls["n"] += 1
-        return [{"id": t["id"], "energy": "mid", "moods": [], "vibes": ["Chill"]} for t in tracks]
+        return [{"id": t["id"], "genres": ["Hip-hop/Rap"], "energy": "mid",
+                 "moods": [], "vibes": ["Chill"]} for t in tracks]
 
     monkeypatch.setattr(llm, "classify_batch", fake_batch)
     assert llm.refine() == 1            # first pass refines
@@ -66,7 +77,8 @@ def test_refine_batches_respect_size(temp_db, monkeypatch):
 
     def fake_batch(tracks):
         batch_sizes.append(len(tracks))
-        return [{"id": t["id"], "energy": "high", "moods": [], "vibes": ["Workout"]} for t in tracks]
+        return [{"id": t["id"], "genres": ["Hip-hop/Rap"], "energy": "high",
+                 "moods": [], "vibes": ["Workout"]} for t in tracks]
 
     monkeypatch.setattr(llm, "classify_batch", fake_batch)
     total = llm.refine()
