@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "library.db"
+TAXONOMY_PATH = Path(os.getenv("TAXONOMY_PATH", ROOT / "taxonomy.json"))
 
 # --- Credentials (from .env) ---
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "")
@@ -23,6 +24,24 @@ SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "")
 SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+# --- Genre-specification feature (genre/subgenre/energy/vibe via ISRC) ------
+# Numeric audio features come from ReccoBeats only (Spotify audio-features is
+# deprecated / 403 for new apps — never call it). Deezer supplies a 30s preview
+# clip for the ReccoBeats extraction fallback. Neither needs a key today; a key
+# slot is provided for ReccoBeats in case they gate the API later.
+RECCOBEATS_BASE_URL = os.getenv("RECCOBEATS_BASE_URL", "https://api.reccobeats.com")
+RECCOBEATS_API_KEY = os.getenv("RECCOBEATS_API_KEY", "")  # usually blank (free)
+DEEZER_BASE_URL = os.getenv("DEEZER_BASE_URL", "https://api.deezer.com")
+
+# Claude model used by the genre-specification classifier. Swappable via env so
+# another model can be A/B tested without touching code.
+CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "claude-haiku-4-5")
+
+# Canonical energy enum, shared by the rules engine and the LLM classifier.
+ENERGY_LEVELS = ["low", "mid", "high"]
+# Energy bands over a 0..1 numeric feature -> enum label (reused by both paths).
+# (ENERGY_BANDS below is the source of truth for the cut points.)
 
 SPOTIFY_SCOPES = "user-library-read playlist-modify-public playlist-modify-private"
 

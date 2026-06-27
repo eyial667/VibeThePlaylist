@@ -1,0 +1,25 @@
+{
+  "_comment": "Controlled vocabulary for the genre-specification classifier. Edit freely: the Claude classifier is constrained to these values and must return genre='other' with a free-text suggested_label when nothing fits, rather than inventing a label. 'energy' and 'vibe' are flat enums; 'genres' maps each allowed genre to its allowed subgenres. Catalog spans American, European and Latin music — no region is dominant. After editing, re-run `python cli.py genre-classify --all --reclassify` to re-tag.",
+  "version": 1,
+  "energy": ["low", "mid", "high"],
+  "vibe": [
+    "chill", "melancholic", "energetic", "euphoric", "dark", "romantic",
+    "dreamy", "aggressive", "uplifting", "nostalgic", "sensual", "playful",
+    "epic", "groovy", "hypnotic", "triumphant"
+  ],
+  "genres": {
+    "Pop": ["dance-pop", "synth-pop", "electropop", "indie-pop", "art-pop", "teen-pop", "k-pop", "europop", "chanson", "schlager", "italo-pop"],
+    "Hip-Hop/Rap": ["trap", "boom-bap", "drill", "uk-drill", "grime", "cloud-rap", "conscious-rap", "gangsta-rap", "afro-trap", "latin-trap", "french-rap", "phonk"],
+    "R&B/Soul": ["contemporary-r&b", "neo-soul", "funk", "motown", "quiet-storm", "alternative-r&b", "new-jack-swing"],
+    "Electronic": ["house", "deep-house", "tech-house", "techno", "trance", "drum-and-bass", "dubstep", "garage", "uk-garage", "ambient", "downtempo", "synthwave", "idm", "electro", "eurodance", "hardstyle", "big-room"],
+    "Rock": ["classic-rock", "indie-rock", "alternative-rock", "punk", "post-punk", "grunge", "garage-rock", "psychedelic-rock", "prog-rock", "britpop", "shoegaze", "krautrock"],
+    "Metal": ["heavy-metal", "thrash-metal", "death-metal", "black-metal", "metalcore", "doom-metal", "power-metal", "nu-metal", "djent"],
+    "Jazz": ["bebop", "swing", "cool-jazz", "jazz-fusion", "smooth-jazz", "free-jazz", "nu-jazz", "gypsy-jazz", "bossa-nova"],
+    "Classical": ["baroque", "romantic-era", "contemporary-classical", "opera", "chamber", "orchestral", "piano", "minimalism"],
+    "Folk/Acoustic": ["singer-songwriter", "indie-folk", "americana", "country", "bluegrass", "celtic", "folk-rock", "chanson-folk", "fado", "flamenco"],
+    "Latin": ["reggaeton", "latin-pop", "salsa", "bachata", "cumbia", "merengue", "bolero", "ranchera", "mariachi", "banda", "norteno", "corridos", "tango", "samba", "mpb", "forro", "vallenato", "dembow", "latin-rock", "bossa-nova-latin"],
+    "Reggae/Dancehall": ["reggae", "dub", "dancehall", "ska", "rocksteady", "roots-reggae"],
+    "Afro/Global": ["afrobeats", "amapiano", "highlife", "soukous", "raï", "afro-house", "world"],
+    "Ambient/Lo-fi": ["lo-fi-hip-hop", "chillhop", "ambient-electronic", "drone", "new-age", "instrumental-beats"]
+  }
+}
