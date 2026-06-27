@@ -28,7 +28,7 @@ SPOTIFY_SCOPES = "user-library-read playlist-modify-public playlist-modify-priva
 
 # --- Behaviour toggles ---
 USE_LLM = False  # optional Claude enrichment; off by default to avoid cost
-PLAYLIST_SCHEMES = ["vibe", "genre", "combined"]  # any subset of these
+PLAYLIST_SCHEMES = ["vibe", "genre", "combined"]  # subset of: vibe/genre/subgenre/combined
 PLAYLIST_VISIBILITY_PUBLIC = False
 PLAYLIST_PREFIX = "🤖 "
 MIN_TRACKS_PER_PLAYLIST = 8  # skip tiny clusters
@@ -59,6 +59,56 @@ DEFAULT_GENRE = "Other"
 # Prevents noisy over-labelling from artist-level genres. Ignored when
 # MULTI_LABEL is False (then it's always 1). The LLM pass uses LLM_MAX_GENRES.
 MAX_GENRES = 2
+
+# --- Subgenres -------------------------------------------------------------
+# Precise subgenres nested under each coarse bucket above. Matching mirrors
+# GENRE_BUCKETS (substring, case-insensitive against a track's raw genres +
+# Last.fm tags), but a subgenre only applies when its parent bucket already
+# matched — so subgenres never contradict the coarse genre. When no subgenre
+# matches, consumers fall back to the coarse genre, so existing behaviour is
+# preserved. Tune freely here, then re-run `python cli.py classify`.
+# Format: coarse bucket -> {subgenre label: [needle substrings]}.
+SUBGENRE_BUCKETS: dict[str, dict[str, list[str]]] = {
+    "Hip-hop/Rap": {
+        "Cloud Rap": ["cloud rap"], "Drill": ["drill"], "Trap": ["trap"],
+        "Boom Bap": ["boom bap"], "Grime": ["grime"],
+    },
+    "R&B/Soul": {
+        "Neo Soul": ["neo soul", "neo-soul"], "Funk": ["funk"], "Motown": ["motown"],
+    },
+    "Electronic": {
+        "House": ["house"], "Techno": ["techno"], "Trance": ["trance"],
+        "Drum & Bass": ["drum and bass", "dnb"], "Dubstep": ["dubstep"],
+        "Garage": ["garage"], "Synthwave": ["synthwave"],
+    },
+    "Pop": {
+        "Synthpop": ["synthpop"], "Indie Pop": ["indie pop"],
+        "Dance Pop": ["dance pop"], "K-pop": ["k-pop"],
+    },
+    "Rock": {
+        "Classic Rock": ["classic rock"], "Alternative": ["alternative"],
+        "Indie Rock": ["indie rock"], "Punk": ["punk"], "Grunge": ["grunge"],
+    },
+    "Metal": {
+        "Metalcore": ["metalcore"], "Hardcore": ["hardcore"], "Djent": ["djent"],
+    },
+    "Jazz": {
+        "Bebop": ["bebop"], "Swing": ["swing"], "Fusion": ["fusion"],
+    },
+    "Latin": {
+        "Reggaeton": ["reggaeton"], "Salsa": ["salsa"], "Bachata": ["bachata"],
+        "Cumbia": ["cumbia"], "Latin Pop": ["latin pop"],
+    },
+    "Reggae/Dub": {
+        "Dancehall": ["dancehall"], "Ska": ["ska"], "Dub": ["dub"],
+    },
+    "Ambient/Lo-fi": {
+        "Lo-fi": ["lo-fi", "lofi"], "Chillhop": ["chillhop"],
+        "Downtempo": ["downtempo"], "Ambient": ["ambient"],
+    },
+}
+# Cap on subgenres the free classifier keeps per track (strongest first).
+MAX_SUBGENRES = 2
 
 # --- Vibe / mood / activity rules ------------------------------------------
 # Mood tag normalisation: map raw Last.fm tag substrings -> canonical mood.

@@ -45,6 +45,56 @@ def test_match_buckets_ranks_by_hit_strength(monkeypatch):
     assert result == ["Hip-hop/Rap"]
 
 
+# --- subgenres -------------------------------------------------------------
+def test_match_subgenres_maps_to_precise():
+    # a Hip-hop/Rap track tagged "drill" -> the Drill subgenre
+    assert classify._match_subgenres(["rap"], ["drill"], ["Hip-hop/Rap"]) == ["Drill"]
+
+
+def test_match_subgenres_constrained_to_parent_bucket():
+    # "house" is an Electronic subgenre; it must NOT apply to a non-Electronic track
+    assert classify._match_subgenres([], ["house"], ["Hip-hop/Rap"]) == []
+    assert classify._match_subgenres([], ["house"], ["Electronic"]) == ["House"]
+
+
+def test_match_subgenres_empty_when_no_signal():
+    # known bucket but no subgenre needle -> empty (consumers fall back to coarse genre)
+    assert classify._match_subgenres(["rap"], ["french"], ["Hip-hop/Rap"]) == []
+
+
+def test_match_subgenres_caps_to_max(monkeypatch):
+    monkeypatch.setattr(config, "MAX_SUBGENRES", 1)
+    out = classify._match_subgenres([], ["drill", "trap"], ["Hip-hop/Rap"])
+    assert len(out) == 1
+
+
+def test_classify_all_writes_subgenres(temp_db):
+    db.upsert_tracks([{"id": "d1", "name": "Block", "artist_ids": ["a1"],
+                       "artist_name": "MC", "album": None, "added_at": None,
+                       "duration_ms": 1}])
+    db.upsert_artists([{"id": "a1", "name": "MC", "genres": ["uk drill", "rap"]}])
+    db.upsert_tags([{"track_id": "d1", "tag": "drill", "source": "lastfm", "weight": 90}])
+    classify.classify_all()
+    with db.connect() as conn:
+        row = conn.execute("SELECT * FROM labels WHERE track_id='d1'").fetchone()
+    assert json.loads(row["genre_buckets"]) == ["Hip-hop/Rap"]
+    assert "Drill" in json.loads(row["subgenres"])
+
+
+def test_classify_all_subgenres_empty_falls_back(temp_db):
+    # rap track with no subgenre signal -> empty subgenres, coarse genre intact
+    db.upsert_tracks([{"id": "p1", "name": "Bars", "artist_ids": ["a1"],
+                       "artist_name": "MC", "album": None, "added_at": None,
+                       "duration_ms": 1}])
+    db.upsert_artists([{"id": "a1", "name": "MC", "genres": ["rap"]}])
+    db.upsert_tags([{"track_id": "p1", "tag": "rap", "source": "lastfm", "weight": 99}])
+    classify.classify_all()
+    with db.connect() as conn:
+        row = conn.execute("SELECT * FROM labels WHERE track_id='p1'").fetchone()
+    assert json.loads(row["genre_buckets"]) == ["Hip-hop/Rap"]
+    assert json.loads(row["subgenres"]) == []
+
+
 # --- moods -----------------------------------------------------------------
 def test_match_moods():
     assert "energetic" in classify._match_moods(["energetic", "banger"])
@@ -143,6 +193,7 @@ def test_classify_gives_coverage_for_tag_only_rap_track(temp_db):
 def test_classify_preserves_llm_labels(seeded_db):
     # simulate an LLM-refined track, then re-run the free classify
     db.upsert_labels([{"track_id": "t1", "genre_buckets": json.dumps(["Electronic"]),
+                       "subgenres": json.dumps(["House"]),
                        "energy_band": "mid", "moods": json.dumps(["dreamy"]),
                        "vibes": json.dumps(["Late-night"]), "method": "llm",
                        "classified_at": "now"}])
@@ -151,6 +202,7 @@ def test_classify_preserves_llm_labels(seeded_db):
         row = conn.execute("SELECT * FROM labels WHERE track_id='t1'").fetchone()
     assert row["method"] == "llm"
     assert row["energy_band"] == "mid"
+    assert json.loads(row["subgenres"]) == ["House"]  # LLM subgenres preserved
     # overwrite_llm=True reclassifies it back to rules
     classify.classify_all(overwrite_llm=True)
     with db.connect() as conn:

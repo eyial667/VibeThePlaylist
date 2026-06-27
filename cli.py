@@ -125,13 +125,16 @@ def cmd_playlists(args) -> None:
 def cmd_query(args) -> None:
     db.init()
     sql = (
-        "SELECT t.artist_name, t.name, l.genre_buckets, l.energy_band, l.vibes "
+        "SELECT t.artist_name, t.name, l.genre_buckets, l.subgenres, l.energy_band, l.vibes "
         "FROM labels l JOIN tracks t ON t.id=l.track_id WHERE 1=1"
     )
     params: list = []
     if args.genre:
         sql += " AND l.genre_buckets LIKE ?"
         params.append(f"%{args.genre}%")
+    if args.subgenre:
+        sql += " AND l.subgenres LIKE ?"
+        params.append(f"%{args.subgenre}%")
     if args.vibe:
         sql += " AND l.vibes LIKE ?"
         params.append(f"%{args.vibe}%")
@@ -144,8 +147,11 @@ def cmd_query(args) -> None:
         rows = conn.execute(sql, params).fetchall()
     for r in rows:
         genres = ", ".join(json.loads(r["genre_buckets"] or "[]"))
+        # show precise subgenres when known, else fall back to the coarse genre
+        subgenres = json.loads(r["subgenres"] or "[]")
+        precise = ", ".join(subgenres) if subgenres else genres
         vibes = ", ".join(json.loads(r["vibes"] or "[]"))
-        print(f"{r['artist_name']} — {r['name']}  [{genres} | {r['energy_band']} | {vibes}]")
+        print(f"{r['artist_name']} — {r['name']}  [{precise} | {r['energy_band']} | {vibes}]")
     print(f"\n{len(rows)} result(s).")
 
 
@@ -177,6 +183,7 @@ def main() -> None:
 
     q = sub.add_parser("query")
     q.add_argument("--genre")
+    q.add_argument("--subgenre")
     q.add_argument("--vibe")
     q.add_argument("--energy", choices=["low", "mid", "high"])
     q.add_argument("--limit", type=int, default=50)

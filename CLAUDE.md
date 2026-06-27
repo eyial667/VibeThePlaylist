@@ -57,10 +57,14 @@ fetch (spotify_client) -> enrich (spotify_client + enrich) -> classify -> {query
 ```
 
 - **`config.py`** is the control surface and the most-edited file. `GENRE_BUCKETS`,
-  `MOOD_TAGS`, `ENERGY_BANDS`, and `VIBE_RULES` define the entire classification
-  taxonomy; everything else (CLI, GUI) derives its option lists from these dicts, so
-  editing config is how you retune results — no code changes needed. Also holds toggles
-  (`PLAYLIST_SCHEMES`, `MULTI_LABEL`, `USE_LLM`, prefixes) and loads `.env`.
+  `SUBGENRE_BUCKETS`, `MOOD_TAGS`, `ENERGY_BANDS`, and `VIBE_RULES` define the entire
+  classification taxonomy; everything else (CLI, GUI) derives its option lists from these
+  dicts, so editing config is how you retune results — no code changes needed.
+  `SUBGENRE_BUCKETS` nests precise subgenres under each coarse bucket (capped by
+  `MAX_SUBGENRES`); a subgenre only applies when its parent bucket matched, and consumers
+  fall back to the coarse genre when none does. Also holds toggles (`PLAYLIST_SCHEMES`
+  — `vibe`/`genre`/`subgenre`/`combined`, `MULTI_LABEL`, `USE_LLM`, prefixes) and
+  loads `.env`.
 
 - **`db.py`** is the cache and source of truth across runs. Tables: `tracks`, `artists`,
   `features`, `tags`, `labels`, `meta`. The incremental design depends on the
@@ -70,9 +74,11 @@ fetch (spotify_client) -> enrich (spotify_client + enrich) -> classify -> {query
 
 - **`classify.py`** is a pure rules engine over cached signals (no network). Genre =
   substring match of a track's combined Spotify genres + Last.fm tags against
-  `GENRE_BUCKETS`. Energy = `audio-features.energy` band when available, else inferred
-  from mood tags. Vibes = `VIBE_RULES` conditions over (energy band, genres, moods).
-  `MULTI_LABEL` controls single- vs multi-bucket assignment.
+  `GENRE_BUCKETS`. Subgenre = `_match_subgenres()` scores `SUBGENRE_BUCKETS` entries the
+  same way, but only within already-matched buckets (empty = fall back to coarse genre).
+  Energy = `audio-features.energy` band when available, else inferred from mood tags.
+  Vibes = `VIBE_RULES` conditions over (energy band, genres, moods). `MULTI_LABEL`
+  controls single- vs multi-bucket assignment.
 
 - **`spotify_client.py`** handles OAuth, pagination, and crucially `probe_capabilities()`:
   Spotify blocked the `audio-features` endpoint for apps created after late 2024. The

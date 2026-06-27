@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS tags (
 CREATE TABLE IF NOT EXISTS labels (
     track_id      TEXT PRIMARY KEY,
     genre_buckets TEXT,   -- json list
+    subgenres     TEXT,   -- json list (precise, nested under genre_buckets)
     energy_band   TEXT,
     moods         TEXT,   -- json list
     vibes         TEXT,   -- json list
@@ -79,6 +80,16 @@ def connect() -> Iterator[sqlite3.Connection]:
 def init() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Lightweight, idempotent column adds for DBs created before a column
+    existed. `CREATE TABLE IF NOT EXISTS` won't alter an existing table, so new
+    nullable columns are backfilled here on every init()."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(labels)")}
+    if "subgenres" not in cols:
+        conn.execute("ALTER TABLE labels ADD COLUMN subgenres TEXT")
 
 
 # --- meta -----------------------------------------------------------------
@@ -194,12 +205,16 @@ def track_ids_missing_tags() -> set[str]:
 
 # --- labels ---------------------------------------------------------------
 def upsert_labels(rows: Iterable[dict]) -> None:
+    # `subgenres` is optional for callers (added after the original schema);
+    # default to an empty JSON list so older code paths keep working.
+    payload = [{"subgenres": "[]", **r} for r in rows]
     with connect() as conn:
         conn.executemany(
-            "INSERT INTO labels(track_id, genre_buckets, energy_band, moods, vibes, method, classified_at) "
-            "VALUES(:track_id, :genre_buckets, :energy_band, :moods, :vibes, :method, :classified_at) "
+            "INSERT INTO labels(track_id, genre_buckets, subgenres, energy_band, moods, vibes, method, classified_at) "
+            "VALUES(:track_id, :genre_buckets, :subgenres, :energy_band, :moods, :vibes, :method, :classified_at) "
             "ON CONFLICT(track_id) DO UPDATE SET genre_buckets=excluded.genre_buckets, "
-            "energy_band=excluded.energy_band, moods=excluded.moods, vibes=excluded.vibes, "
+            "subgenres=excluded.subgenres, energy_band=excluded.energy_band, "
+            "moods=excluded.moods, vibes=excluded.vibes, "
             "method=excluded.method, classified_at=excluded.classified_at",
-            list(rows),
+            payload,
         )

@@ -30,6 +30,20 @@ def test_clusters_cover_all_three_schemes(temp_db, monkeypatch):
     assert "Chill Jazz" in clusters    # combined scheme
 
 
+def test_clusters_subgenre_scheme_with_coarse_fallback(temp_db, monkeypatch):
+    monkeypatch.setattr(config, "PLAYLIST_SCHEMES", ["subgenre"])
+    monkeypatch.setattr(config, "MIN_TRACKS_PER_PLAYLIST", 1)
+    # t1 has a precise subgenre; t2 has none -> falls back to its coarse genre
+    sg = {**_label("t1", ["Hip-hop/Rap"], ["Workout"]), "subgenres": json.dumps(["Drill"])}
+    plain = {**_label("t2", ["Hip-hop/Rap"], ["Workout"]), "subgenres": json.dumps([])}
+    _seed_labels([sg, plain])
+    clusters = playlists._clusters()
+    assert "Drill" in clusters              # precise subgenre playlist
+    assert "Hip-hop/Rap" in clusters        # fallback for the subgenre-less track
+    assert clusters["Drill"] == ["t1"]
+    assert clusters["Hip-hop/Rap"] == ["t2"]
+
+
 def test_clusters_respect_min_tracks(temp_db, monkeypatch):
     monkeypatch.setattr(config, "PLAYLIST_SCHEMES", ["genre"])
     monkeypatch.setattr(config, "MIN_TRACKS_PER_PLAYLIST", 2)

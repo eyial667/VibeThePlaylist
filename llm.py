@@ -45,6 +45,27 @@ def _sanitize_genres(raw, fallback: list[str]) -> list[str]:
     return out
 
 
+def _sanitize_subgenres(raw, genres: list[str]) -> list[str]:
+    """Keep only subgenres valid for the track's chosen buckets, de-duped, capped.
+
+    Subgenres must belong to one of the assigned `genres` (per
+    config.SUBGENRE_BUCKETS); anything else is dropped. Empty is fine — consumers
+    fall back to the coarse genre — so there's no default to invent here.
+    """
+    allowed = {
+        label
+        for g in genres
+        for label in config.SUBGENRE_BUCKETS.get(g, {})
+    }
+    out: list[str] = []
+    for s in raw or []:
+        if s in allowed and s not in out:
+            out.append(s)
+        if len(out) == config.MAX_SUBGENRES:
+            break
+    return out
+
+
 def classify_batch(tracks: list[dict]) -> list[dict]:
     """tracks: [{id, name, artist_name, genres:[...], tags:[...]}]
     -> [{id, genres:[...], energy, moods:[], vibes:[]}].
@@ -72,12 +93,15 @@ def classify_batch(tracks: list[dict]) -> list[dict]:
         f"Return a 2nd bucket ONLY if the track is a genuine strong blend of two; "
         f"never return more than {config.LLM_MAX_GENRES}. Prefer one. The candidate "
         "genres listed per track are noisy (artist-level) hints, not a requirement.\n"
+        f"- subgenres: zero to {config.MAX_SUBGENRES} precise subgenres, chosen ONLY from "
+        f"the list for the bucket(s) you picked: {config.SUBGENRE_BUCKETS}. Leave empty if "
+        "none clearly fit — do not guess.\n"
         f"- energy: exactly one of {['low', 'mid', 'high']}\n"
         f"- moods: zero or more of {list(config.MOOD_TAGS.keys())}\n"
         f"- vibes: one or more of {list(config.VIBE_RULES.keys())}\n\n"
         "Return ONLY a JSON array, one object per track, with keys: "
-        "index (1-based int), genres (array of 1-2 strings), energy (string), "
-        "moods (array), vibes (array). No prose, no markdown.\n\n"
+        "index (1-based int), genres (array of 1-2 strings), subgenres (array), "
+        "energy (string), moods (array), vibes (array). No prose, no markdown.\n\n"
         f"{listing}"
     )
     msg = client.messages.create(
@@ -96,9 +120,11 @@ def classify_batch(tracks: list[dict]) -> list[dict]:
         except (KeyError, ValueError, TypeError):
             continue
         if 0 <= idx < len(tracks):
+            genres = _sanitize_genres(obj.get("genres"), tracks[idx].get("genres", []))
             out.append({
                 "id": tracks[idx]["id"],
-                "genres": _sanitize_genres(obj.get("genres"), tracks[idx].get("genres", [])),
+                "genres": genres,
+                "subgenres": _sanitize_subgenres(obj.get("subgenres"), genres),
                 "energy": obj.get("energy"),
                 "moods": obj.get("moods", []) or [],
                 "vibes": obj.get("vibes", []) or [],
@@ -147,6 +173,7 @@ def refine(force: bool = False, progress=None) -> int:
             {
                 "track_id": r["id"],
                 "genre_buckets": json.dumps(r["genres"]),  # LLM-refined, max 2
+                "subgenres": json.dumps(r.get("subgenres", [])),
                 "energy_band": r["energy"],
                 "moods": json.dumps(r["moods"]),
                 "vibes": json.dumps(r["vibes"]),

@@ -27,6 +27,7 @@ import db
 
 # --- option lists, derived from config so they always stay in sync ---------
 GENRES = list(config.GENRE_BUCKETS.keys()) + [config.DEFAULT_GENRE]
+SUBGENRES = [sg for subs in config.SUBGENRE_BUCKETS.values() for sg in subs]
 VIBES = list(config.VIBE_RULES.keys()) + [config.DEFAULT_VIBE]
 ENERGIES = [band[2] for band in config.ENERGY_BANDS]  # low / mid / high
 MOODS = list(config.MOOD_TAGS.keys())
@@ -39,7 +40,7 @@ def load_rows() -> list[dict]:
         with db.connect() as conn:
             rows = conn.execute(
                 "SELECT t.id, t.artist_name, t.name, t.album, l.genre_buckets, "
-                "l.energy_band, l.moods, l.vibes "
+                "l.subgenres, l.energy_band, l.moods, l.vibes "
                 "FROM labels l JOIN tracks t ON t.id = l.track_id"
             ).fetchall()
     except Exception:
@@ -52,6 +53,7 @@ def load_rows() -> list[dict]:
             "title": r["name"],
             "album": r["album"] or "",
             "genres": json.loads(r["genre_buckets"] or "[]"),
+            "subgenres": json.loads(r["subgenres"] or "[]"),
             "energy": r["energy_band"],
             "moods": json.loads(r["moods"] or "[]"),
             "vibes": json.loads(r["vibes"] or "[]"),
@@ -133,6 +135,8 @@ def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
     includes combine via any_mode (Any selected) or all (All categories)."""
     if exc["g"] & set(row["genres"]):
         return False
+    if exc["sg"] & set(row["subgenres"]):
+        return False
     if exc["v"] & set(row["vibes"]):
         return False
     if row["energy"] in exc["e"]:
@@ -146,6 +150,8 @@ def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
     checks = []
     if inc["g"]:
         checks.append(bool(inc["g"] & set(row["genres"])))
+    if inc["sg"]:
+        checks.append(bool(inc["sg"] & set(row["subgenres"])))
     if inc["v"]:
         checks.append(bool(inc["v"] & set(row["vibes"])))
     if inc["e"]:
@@ -350,6 +356,9 @@ class App(ttk.Frame):
         self.genre_group = CheckGroup(filters, "Genres", GENRES, self.refresh)
         self.genre_group.pack(side="left", fill="y", padx=(0, 8))
 
+        self.subgenre_group = CheckGroup(filters, "Subgenres", SUBGENRES, self.refresh)
+        self.subgenre_group.pack(side="left", fill="y", padx=8)
+
         self.vibe_group = CheckGroup(filters, "Vibes", VIBES, self.refresh)
         self.vibe_group.pack(side="left", fill="y", padx=8)
 
@@ -396,10 +405,10 @@ class App(ttk.Frame):
                   foreground="gray40").pack(side="right", padx=12)
 
         # --- bottom: results table ---
-        cols = ("artist", "title", "album", "genres", "energy", "vibes")
+        cols = ("artist", "title", "album", "genres", "subgenres", "energy", "vibes")
         self.tree = ttk.Treeview(self, columns=cols, show="headings", height=18)
         widths = {"artist": 150, "title": 200, "album": 170,
-                  "genres": 150, "energy": 60, "vibes": 180}
+                  "genres": 150, "subgenres": 150, "energy": 60, "vibes": 180}
         for c in cols:
             self.tree.heading(c, text=c.capitalize())
             self.tree.column(c, width=widths[c], anchor="w")
@@ -418,8 +427,9 @@ class App(ttk.Frame):
 
     # --- filtering ---------------------------------------------------------
     def clear_all(self) -> None:
-        for group in (self.genre_group, self.vibe_group, self.energy_group,
-                      self.mood_group, self.artist_group, self.album_group):
+        for group in (self.genre_group, self.subgenre_group, self.vibe_group,
+                      self.energy_group, self.mood_group, self.artist_group,
+                      self.album_group):
             group.reset()
         self.refresh()
 
@@ -428,12 +438,14 @@ class App(ttk.Frame):
 
     def refresh(self) -> None:
         inc = {
-            "g": self.genre_group.included(), "v": self.vibe_group.included(),
+            "g": self.genre_group.included(), "sg": self.subgenre_group.included(),
+            "v": self.vibe_group.included(),
             "e": self.energy_group.included(), "m": self.mood_group.included(),
             "ar": self.artist_group.included(), "al": self.album_group.included(),
         }
         exc = {
-            "g": self.genre_group.excluded(), "v": self.vibe_group.excluded(),
+            "g": self.genre_group.excluded(), "sg": self.subgenre_group.excluded(),
+            "v": self.vibe_group.excluded(),
             "e": self.energy_group.excluded(), "m": self.mood_group.excluded(),
             "ar": self.artist_group.excluded(), "al": self.album_group.excluded(),
         }
@@ -450,9 +462,11 @@ class App(ttk.Frame):
         self.tree.delete(*self.tree.get_children())
         self.shown_rows = [row for row in self.rows if self._matches(row, inc, exc)]
         for row in self.shown_rows:
+            # show precise subgenres when known, else fall back to coarse genres
+            subgenres = ", ".join(row["subgenres"]) if row["subgenres"] else ", ".join(row["genres"])
             self.tree.insert("", "end", values=(
                 row["artist"], row["title"], row["album"], ", ".join(row["genres"]),
-                row["energy"] or "?", ", ".join(row["vibes"]),
+                subgenres, row["energy"] or "?", ", ".join(row["vibes"]),
             ))
         self.count_var.set(f"{len(self.shown_rows)} / {len(self.rows)} tracks")
 
