@@ -62,7 +62,56 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT
 );
+
+-- genre-specification feature ------------------------------------------------
+-- Rich per-track classification keyed by ISRC (the canonical join key). Rows
+-- are upserted by ISRC; tracks with no resolvable ISRC use a normalized
+-- "key:artist|title" fallback so they still get a result and show up in the
+-- coverage report.
+CREATE TABLE IF NOT EXISTS classifications (
+    isrc             TEXT PRIMARY KEY,
+    spotify_id       TEXT,
+    title            TEXT,
+    artist           TEXT,
+    genre            TEXT,
+    subgenre         TEXT,
+    energy           TEXT,          -- low | mid | high
+    vibe             TEXT,          -- json list
+    confidence       REAL,
+    features_source  TEXT,          -- reccobeats_lookup | reccobeats_extracted | none
+    energy_raw       REAL,
+    danceability     REAL,
+    valence          REAL,
+    acousticness     REAL,
+    tempo            REAL,
+    match_confidence REAL,          -- null when not name-matched
+    classified_at    TEXT,
+    model_used       TEXT,
+    notes            TEXT
+);
+
+-- Generic external-API cache. Every external lookup (Spotify metadata,
+-- ReccoBeats features, Deezer previews, and the LLM result) is cached here
+-- keyed by (namespace, key) where key is the ISRC wherever possible, so re-runs
+-- never re-hit an API for data already seen.
+CREATE TABLE IF NOT EXISTS api_cache (
+    namespace  TEXT,
+    key        TEXT,
+    value      TEXT,   -- json
+    fetched_at TEXT,
+    PRIMARY KEY (namespace, key)
+);
 """
+
+# Additive columns layered onto pre-existing DBs. CREATE TABLE IF NOT EXISTS
+# can't add columns to a table that already exists, so we ALTER them in on init.
+# (table, column, type) — applied only when the column is absent.
+_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("tracks", "isrc", "TEXT"),
+    ("tracks", "spotify_id", "TEXT"),
+    ("tracks", "match_confidence", "REAL"),
+    ("tracks", "resolution_method", "TEXT"),
+]
 
 
 @contextmanager
@@ -79,6 +128,15 @@ def connect() -> Iterator[sqlite3.Connection]:
 def init() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _apply_migrations(conn)
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Add any columns introduced after a DB was first created (idempotent)."""
+    for table, column, coltype in _MIGRATIONS:
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
 
 
 # --- meta -----------------------------------------------------------------
@@ -202,4 +260,121 @@ def upsert_labels(rows: Iterable[dict]) -> None:
             "energy_band=excluded.energy_band, moods=excluded.moods, vibes=excluded.vibes, "
             "method=excluded.method, classified_at=excluded.classified_at",
             list(rows),
+        )
+
+
+# --- genre-specification: track identifier write-back ---------------------
+def set_track_identifiers(
+    track_id: str,
+    isrc: str | None,
+    spotify_id: str | None,
+    match_confidence: float | None,
+    resolution_method: str | None,
+) -> None:
+    """Persist a resolved ISRC (and spotify_id) onto a library track row so
+    future runs skip re-resolution. No-op if the track isn't in the library
+    (ad-hoc CLI tracks have no `tracks` row)."""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE tracks SET isrc=?, spotify_id=?, match_confidence=?, "
+            "resolution_method=? WHERE id=?",
+            (isrc, spotify_id, match_confidence, resolution_method, track_id),
+        )
+
+
+def tracks_for_classification() -> list[dict]:
+    """Library rows the batch classifier consumes (includes any cached ISRC)."""
+    with connect() as conn:
+        return [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "artist_ids": json.loads(r["artist_ids"]),
+                "artist_name": r["artist_name"],
+                "album": r["album"],
+                "isrc": r["isrc"] if "isrc" in r.keys() else None,
+            }
+            for r in conn.execute(
+                "SELECT id, name, artist_ids, artist_name, album, isrc FROM tracks"
+            )
+        ]
+
+
+# --- genre-specification: classifications ---------------------------------
+_CLASSIFICATION_COLS = [
+    "isrc", "spotify_id", "title", "artist", "genre", "subgenre", "energy",
+    "vibe", "confidence", "features_source", "energy_raw", "danceability",
+    "valence", "acousticness", "tempo", "match_confidence", "classified_at",
+    "model_used", "notes",
+]
+
+
+def upsert_classification(row: dict) -> None:
+    """Insert/replace one classification, keyed by ISRC (or fallback key)."""
+    cols = ", ".join(_CLASSIFICATION_COLS)
+    placeholders = ", ".join(f":{c}" for c in _CLASSIFICATION_COLS)
+    updates = ", ".join(f"{c}=excluded.{c}" for c in _CLASSIFICATION_COLS if c != "isrc")
+    payload = {c: row.get(c) for c in _CLASSIFICATION_COLS}
+    if isinstance(payload.get("vibe"), (list, tuple)):
+        payload["vibe"] = json.dumps(list(payload["vibe"]))
+    with connect() as conn:
+        conn.execute(
+            f"INSERT INTO classifications ({cols}) VALUES ({placeholders}) "
+            f"ON CONFLICT(isrc) DO UPDATE SET {updates}",
+            payload,
+        )
+
+
+def get_classification(isrc: str) -> dict | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM classifications WHERE isrc=?", (isrc,)
+        ).fetchone()
+    if not row:
+        return None
+    out = dict(row)
+    out["vibe"] = json.loads(out["vibe"] or "[]")
+    return out
+
+
+def classified_keys() -> set[str]:
+    """ISRCs (and fallback keys) already classified — used for batch resume."""
+    with connect() as conn:
+        return {r["isrc"] for r in conn.execute("SELECT isrc FROM classifications")}
+
+
+def all_classifications() -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM classifications ORDER BY classified_at"
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["vibe"] = json.loads(d["vibe"] or "[]")
+        out.append(d)
+    return out
+
+
+# --- generic external-API cache (keyed by namespace + ISRC where possible) --
+def cache_get(namespace: str, key: str):
+    """Return the cached JSON value for (namespace, key), or None on miss."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT value FROM api_cache WHERE namespace=? AND key=?",
+            (namespace, key),
+        ).fetchone()
+    return json.loads(row["value"]) if row else None
+
+
+def cache_set(namespace: str, key: str, value) -> None:
+    from datetime import datetime, timezone
+
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO api_cache(namespace, key, value, fetched_at) "
+            "VALUES(?, ?, ?, ?) ON CONFLICT(namespace, key) DO UPDATE SET "
+            "value=excluded.value, fetched_at=excluded.fetched_at",
+            (namespace, key, json.dumps(value),
+             datetime.now(timezone.utc).isoformat()),
         )
