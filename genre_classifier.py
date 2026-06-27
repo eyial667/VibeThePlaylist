@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 import config
 import taxonomy as tax
+import text_utils
 
 # Input dict the pipeline passes in (all optional except title/artist):
 #   {title, artist, album, release_year, genre_hints:[...], features:{...}|None}
@@ -109,20 +110,10 @@ def coerce_to_taxonomy(c: Classification, taxonomy: tax.Taxonomy) -> Classificat
     })
 
 
-def _strip_fences(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.lstrip().lower().startswith("json"):
-            text = text.lstrip()[4:]
-    return text.strip()
-
-
 def parse_json_object(text: str, *, prefill: str = "") -> dict:
     """Parse a JSON object from model text, tolerating fences and a prefilled
     opening brace. Raises json.JSONDecodeError on failure."""
-    candidate = _strip_fences(prefill + text)
-    return json.loads(candidate)
+    return json.loads(text_utils.strip_code_fences(prefill + text))
 
 
 # ---------------------------------------------------------------------------

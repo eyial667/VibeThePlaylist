@@ -80,12 +80,15 @@ class GenrePipeline:
 
     # --- single track --------------------------------------------------------
     def classify_track(self, track: TrackInput, *, stats: CoverageStats | None = None,
-                       persist: bool = True) -> dict:
-        """Run the full flow for one track and return the persisted row dict."""
+                       persist: bool = True, resolution: Resolution | None = None) -> dict:
+        """Run the full flow for one track and return the persisted row dict.
+
+        `resolution` lets the batch loop pass an already-computed Resolution so a
+        track resolved for the resume check isn't resolved a second time here."""
         if stats is not None:
             stats.total += 1
 
-        res = self.resolver.resolve(
+        res = resolution or self.resolver.resolve(
             isrc=track.isrc, spotify_id=track.spotify_id,
             artist=track.artist, title=track.title,
         )
@@ -163,7 +166,9 @@ class GenrePipeline:
                 album=r.get("album"), track_id=r["id"],
             )
             try:
-                # Resolve key first to honor resume on the fallback key too.
+                # Resolve once up front so resume can skip on the fallback key
+                # too; the resolution is reused by classify_track (no re-resolve).
+                res = None
                 if not reclassify:
                     res = self.resolver.resolve(
                         isrc=ti.isrc, spotify_id=ti.spotify_id,
@@ -172,7 +177,7 @@ class GenrePipeline:
                         if progress:
                             progress(i, total)
                         continue
-                row = self.classify_track(ti, stats=stats)
+                row = self.classify_track(ti, stats=stats, resolution=res)
                 done_keys.add(row["isrc"])
             except Exception:  # noqa: BLE001 — one bad track must not kill the batch
                 stats.errors += 1
@@ -235,3 +240,29 @@ def parse_track_arg(value: str) -> tuple[str, str]:
             artist, _, title = value.partition(sep)
             return artist.strip(), title.strip()
     return "", value.strip()
+
+
+def format_result_lines(row: dict) -> list[str]:
+    """Human-readable summary of a classification row, shared by the CLI and GUI
+    so the two presentations never drift."""
+    isrc = row["isrc"]
+    if text_utils.is_fallback_key(isrc):
+        isrc += "  (no ISRC — fallback key)"
+    feats = row["features_source"]
+    if feats != P.SRC_NONE:
+        feats += f"  (energy={row['energy_raw']}, tempo={row['tempo']})"
+    conf = f"{row['confidence']}"
+    if row["match_confidence"] is not None:
+        conf += f"   match_confidence: {row['match_confidence']}"
+    lines = [
+        f"{row['artist']} — {row['title']}",
+        f"ISRC:       {isrc}",
+        f"Genre:      {row['genre']} / {row['subgenre'] or '—'}",
+        f"Energy:     {row['energy']}",
+        f"Vibe:       {', '.join(row['vibe']) or '—'}",
+        f"Features:   {feats}",
+        f"Confidence: {conf}",
+    ]
+    if row.get("notes"):
+        lines.append(f"Notes:      {row['notes']}")
+    return lines

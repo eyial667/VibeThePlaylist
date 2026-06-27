@@ -161,22 +161,9 @@ def cmd_genre_classify(args) -> None:
         return
 
     row = pipeline.classify_track(track)
-    vibes = ", ".join(row["vibe"]) or "—"
-    sub = row["subgenre"] or "—"
-    print(f"\n{row['artist']} — {row['title']}")
-    print(f"  ISRC:     {row['isrc']}"
-          + ("  (no ISRC — fallback key)" if row["isrc"].startswith("key:") else ""))
-    print(f"  Genre:    {row['genre']} / {sub}")
-    print(f"  Energy:   {row['energy']}")
-    print(f"  Vibe:     {vibes}")
-    print(f"  Features: {row['features_source']}"
-          + (f" (energy={row['energy_raw']}, tempo={row['tempo']})"
-             if row["features_source"] != "none" else ""))
-    print(f"  Confidence: {row['confidence']}"
-          + (f"   match_confidence: {row['match_confidence']}"
-             if row["match_confidence"] is not None else ""))
-    if row["notes"]:
-        print(f"  Notes:    {row['notes']}")
+    print()
+    for line in gp.format_result_lines(row):
+        print(f"  {line}")
 
 
 def cmd_playlists(args) -> None:

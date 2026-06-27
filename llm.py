@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 import config
 import db
+import text_utils
 
 MODEL = "claude-haiku-4-5-20251001"  # cheap + fast; fine for tagging
 
@@ -84,11 +85,7 @@ def classify_batch(tracks: list[dict]) -> list[dict]:
         model=MODEL, max_tokens=4000, system=_SYSTEM,
         messages=[{"role": "user", "content": prompt}],
     )
-    text = msg.content[0].text.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        text = text[4:].strip() if text.lstrip().startswith("json") else text.strip()
-    data = json.loads(text)
+    data = json.loads(text_utils.strip_code_fences(msg.content[0].text))
     out = []
     for obj in data:
         try:

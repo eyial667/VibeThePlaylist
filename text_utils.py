@@ -115,6 +115,11 @@ def fallback_key(artist: str | None, title: str | None) -> str:
     return f"key:{a}|{t}"
 
 
+def is_fallback_key(key: str | None) -> bool:
+    """True for a 'key:artist|title' fallback identifier (no real ISRC)."""
+    return bool(key) and key.startswith("key:")
+
+
 # Real ISRCs are 12 chars: 2-letter country + 3 alnum registrant + 2-digit year
 # + 5-digit designation (commonly stored without hyphens).
 _ISRC_RE = re.compile(r"^[A-Za-z]{2}[A-Za-z0-9]{3}\d{2}\d{5}$")
@@ -131,3 +136,16 @@ def clean_isrc(value: str | None) -> str | None:
         return None
     candidate = value.replace("-", "").strip().upper()
     return candidate if is_real_isrc(candidate) else None
+
+
+def strip_code_fences(text: str) -> str:
+    """Strip a ```/```json markdown code fence from LLM output, tolerating a
+    missing closing fence. Shared by the LLM passes that parse JSON replies."""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        parts = text.split("```")
+        if len(parts) >= 2:
+            text = parts[1]
+            if text.lstrip().lower().startswith("json"):
+                text = text.lstrip()[4:]
+    return text.strip()

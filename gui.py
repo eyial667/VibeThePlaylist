@@ -588,22 +588,9 @@ class App(ttk.Frame):
         if exc is not None:
             messagebox.showerror("Classification failed", str(exc))
             return
-        vibes = ", ".join(row["vibe"]) or "—"
-        isrc = row["isrc"] + ("  (fallback key — no ISRC)"
-                              if row["isrc"].startswith("key:") else "")
-        feats = row["features_source"]
-        if feats != "none":
-            feats += f"  (energy={row['energy_raw']}, tempo={row['tempo']})"
-        messagebox.showinfo(
-            "Classification stored",
-            f"{row['artist']} — {row['title']}\n\n"
-            f"ISRC:    {isrc}\n"
-            f"Genre:   {row['genre']} / {row['subgenre'] or '—'}\n"
-            f"Energy:  {row['energy']}\n"
-            f"Vibe:    {vibes}\n"
-            f"Features: {feats}\n"
-            f"Confidence: {row['confidence']}",
-        )
+        import genre_pipeline as gp
+        messagebox.showinfo("Classification stored",
+                            "\n".join(gp.format_result_lines(row)))
 
     def classify_library(self) -> None:
         """Batch-classify the whole library off the UI thread, with a live

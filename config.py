@@ -38,10 +38,8 @@ DEEZER_BASE_URL = os.getenv("DEEZER_BASE_URL", "https://api.deezer.com")
 # another model can be A/B tested without touching code.
 CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "claude-haiku-4-5")
 
-# Canonical energy enum, shared by the rules engine and the LLM classifier.
-ENERGY_LEVELS = ["low", "mid", "high"]
-# Energy bands over a 0..1 numeric feature -> enum label (reused by both paths).
-# (ENERGY_BANDS below is the source of truth for the cut points.)
+# The canonical energy enum (ENERGY_LEVELS) is derived from ENERGY_BANDS below,
+# which is the single source of truth for both the cut points and the labels.
 
 SPOTIFY_SCOPES = "user-library-read playlist-modify-public playlist-modify-private"
 
@@ -94,6 +92,9 @@ MOOD_TAGS: dict[str, list[str]] = {
 
 # Energy banding from Spotify audio-features `energy` (0..1), used when available.
 ENERGY_BANDS = [(0.0, 0.40, "low"), (0.40, 0.70, "mid"), (0.70, 1.01, "high")]
+# Canonical energy enum, derived from the bands so the two never drift. Shared by
+# the rules engine, the LLM refiner, and the genre-specification classifier.
+ENERGY_LEVELS = [name for _lo, _hi, name in ENERGY_BANDS]
 
 # Activity/context rules. Each rule fires if ANY of its trigger sets match.
 # Evaluated against: energy_band, genre buckets, moods.

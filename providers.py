@@ -240,12 +240,10 @@ class ReccoBeatsFeatureProvider(FeatureProvider):
         self.session = session or requests.Session()
         self.deezer = deezer or DeezerClient(session=self.session)
         self.api_key = api_key if api_key is not None else config.RECCOBEATS_API_KEY
-
-    def _headers(self) -> dict:
-        h = {"Accept": "application/json"}
+        # Headers never change for the instance — build once.
+        self.headers = {"Accept": "application/json"}
         if self.api_key:
-            h["Authorization"] = f"Bearer {self.api_key}"
-        return h
+            self.headers["Authorization"] = f"Bearer {self.api_key}"
 
     # --- public --------------------------------------------------------------
     def get_features(self, *, isrc: str | None, spotify_id: str | None,
@@ -269,7 +267,7 @@ class ReccoBeatsFeatureProvider(FeatureProvider):
         def _track():
             resp = self.session.get(f"{self.base_url}/v1/track",
                                     params={"ids": spotify_id},
-                                    headers=self._headers(), timeout=15)
+                                    headers=self.headers, timeout=15)
             resp.raise_for_status()
             return resp.json()
 
@@ -281,7 +279,7 @@ class ReccoBeatsFeatureProvider(FeatureProvider):
         def _feats():
             resp = self.session.get(f"{self.base_url}/v1/audio-features",
                                     params={"ids": rb_id},
-                                    headers=self._headers(), timeout=15)
+                                    headers=self.headers, timeout=15)
             resp.raise_for_status()
             return resp.json()
 
@@ -307,7 +305,7 @@ class ReccoBeatsFeatureProvider(FeatureProvider):
             resp = self.session.post(
                 f"{self.base_url}/v1/analysis/audio-features",
                 files={"audioFile": ("preview.mp3", clip, "audio/mpeg")},
-                headers=self._headers(), timeout=60,
+                headers=self.headers, timeout=60,
             )
             resp.raise_for_status()
             return resp.json()
@@ -335,18 +333,21 @@ def _content_list(payload) -> list:
     return []
 
 
-def _first_reccobeats_id(payload) -> str | None:
+def _first_item(payload, predicate) -> dict | None:
+    """First dict in a (possibly wrapped) ReccoBeats payload matching predicate."""
     for item in _content_list(payload):
-        if isinstance(item, dict) and item.get("id"):
-            return item["id"]
+        if isinstance(item, dict) and predicate(item):
+            return item
     return None
+
+
+def _first_reccobeats_id(payload) -> str | None:
+    item = _first_item(payload, lambda i: i.get("id"))
+    return item["id"] if item else None
 
 
 def _first_feature_obj(payload) -> dict | None:
-    for item in _content_list(payload):
-        if isinstance(item, dict) and any(f in item for f in FEATURE_FIELDS):
-            return item
-    return None
+    return _first_item(payload, lambda i: any(f in i for f in FEATURE_FIELDS))
 
 
 def _normalize_features(row: dict, source: str) -> dict:

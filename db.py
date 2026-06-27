@@ -307,22 +307,23 @@ _CLASSIFICATION_COLS = [
     "valence", "acousticness", "tempo", "match_confidence", "classified_at",
     "model_used", "notes",
 ]
+_CLASSIFICATION_SQL = (
+    "INSERT INTO classifications ({cols}) VALUES ({vals}) "
+    "ON CONFLICT(isrc) DO UPDATE SET {updates}"
+).format(
+    cols=", ".join(_CLASSIFICATION_COLS),
+    vals=", ".join(f":{c}" for c in _CLASSIFICATION_COLS),
+    updates=", ".join(f"{c}=excluded.{c}" for c in _CLASSIFICATION_COLS if c != "isrc"),
+)
 
 
 def upsert_classification(row: dict) -> None:
     """Insert/replace one classification, keyed by ISRC (or fallback key)."""
-    cols = ", ".join(_CLASSIFICATION_COLS)
-    placeholders = ", ".join(f":{c}" for c in _CLASSIFICATION_COLS)
-    updates = ", ".join(f"{c}=excluded.{c}" for c in _CLASSIFICATION_COLS if c != "isrc")
     payload = {c: row.get(c) for c in _CLASSIFICATION_COLS}
     if isinstance(payload.get("vibe"), (list, tuple)):
         payload["vibe"] = json.dumps(list(payload["vibe"]))
     with connect() as conn:
-        conn.execute(
-            f"INSERT INTO classifications ({cols}) VALUES ({placeholders}) "
-            f"ON CONFLICT(isrc) DO UPDATE SET {updates}",
-            payload,
-        )
+        conn.execute(_CLASSIFICATION_SQL, payload)
 
 
 def get_classification(isrc: str) -> dict | None:
