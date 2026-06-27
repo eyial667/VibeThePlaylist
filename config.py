@@ -68,7 +68,10 @@ MAX_GENRES = 2
 # matches, consumers fall back to the coarse genre, so existing behaviour is
 # preserved. Tune freely here, then re-run `python cli.py classify`.
 # Format: coarse bucket -> {subgenre label: [needle substrings]}.
-SUBGENRE_BUCKETS: dict[str, dict[str, list[str]]] = {
+# `_SUBGENRE_BUCKETS_BASE` is the hand-curated set; it is merged below with the
+# auto-generated overlay in `subgenres_generated.py` (produced by
+# `python cli.py gen-subgenres`). Hand-curated entries win on conflict.
+_SUBGENRE_BUCKETS_BASE: dict[str, dict[str, list[str]]] = {
     "Hip-hop/Rap": {
         "Cloud Rap": ["cloud rap"], "Drill": ["drill"], "Trap": ["trap"],
         "Boom Bap": ["boom bap"], "Grime": ["grime"],
@@ -107,6 +110,35 @@ SUBGENRE_BUCKETS: dict[str, dict[str, list[str]]] = {
         "Downtempo": ["downtempo"], "Ambient": ["ambient"],
     },
 }
+
+
+def _merge_subgenres(
+    base: dict[str, dict[str, list[str]]],
+    overlay: dict[str, dict[str, list[str]]],
+) -> dict[str, dict[str, list[str]]]:
+    """Merge the auto-generated overlay into the hand-curated base.
+
+    Hand-curated entries take precedence: a subgenre label present in `base`
+    keeps its needles even if the overlay also defines it. Overlay-only buckets
+    and labels are added. The result is what consumers see as SUBGENRE_BUCKETS.
+    """
+    out = {bucket: dict(subs) for bucket, subs in base.items()}
+    for bucket, subs in (overlay or {}).items():
+        dst = out.setdefault(bucket, {})
+        for label, needles in subs.items():
+            dst.setdefault(label, list(needles))  # base wins on conflict
+    return out
+
+
+try:
+    from subgenres_generated import GENERATED_SUBGENRES as _GENERATED_SUBGENRES
+except Exception:  # overlay is optional; absence just means no generated extras
+    _GENERATED_SUBGENRES = {}
+
+SUBGENRE_BUCKETS: dict[str, dict[str, list[str]]] = _merge_subgenres(
+    _SUBGENRE_BUCKETS_BASE, _GENERATED_SUBGENRES
+)
+
 # Cap on subgenres the free classifier keeps per track (strongest first).
 MAX_SUBGENRES = 2
 

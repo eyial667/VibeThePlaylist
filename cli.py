@@ -155,6 +155,31 @@ def cmd_query(args) -> None:
     print(f"\n{len(rows)} result(s).")
 
 
+def cmd_gen_subgenres(args) -> None:
+    import subgenre_gen
+    if not subgenre_gen.available():
+        print("gen-subgenres needs ANTHROPIC_API_KEY (set it in .env).")
+        return
+    if args.genre:
+        targets = [args.genre]
+    elif args.all:
+        targets = list(config.GENRE_BUCKETS.keys())
+    else:
+        targets = subgenre_gen.missing_genres()
+    if not targets:
+        print("All genres already have subgenres. Use --all to regenerate, "
+              "or --genre NAME to target one.")
+        return
+    print(f"Generating subgenres for: {', '.join(targets)}")
+    counts = subgenre_gen.regenerate(
+        targets,
+        progress=lambda g, n: print(f"  {g}: {n} subgenre(s)"),
+    )
+    total = sum(counts.values())
+    print(f"Wrote {total} subgenre(s) across {len(counts)} genre(s) to "
+          "subgenres_generated.py. Run `python cli.py classify` to apply.")
+
+
 def cmd_all(args) -> None:
     cmd_fetch(args)
     cmd_enrich(args)
@@ -180,6 +205,13 @@ def main() -> None:
     pl = sub.add_parser("playlists")
     pl.add_argument("--dry-run", action="store_true", help="show clusters without writing")
     pl.set_defaults(func=cmd_playlists)
+
+    gs = sub.add_parser("gen-subgenres",
+                        help="research subgenres for new genres via Claude + web search")
+    gs.add_argument("--genre", help="generate for a single coarse genre bucket")
+    gs.add_argument("--all", action="store_true",
+                    help="regenerate every bucket, not just those missing subgenres")
+    gs.set_defaults(func=cmd_gen_subgenres)
 
     q = sub.add_parser("query")
     q.add_argument("--genre")
