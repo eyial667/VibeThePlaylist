@@ -91,8 +91,10 @@ fetch (spotify_client) -> enrich (spotify_client + enrich) -> classify -> {query
   aren't re-queried every run.
 
 - **`playlists.py`** builds name->track_id clusters for the enabled `PLAYLIST_SCHEMES`
-  (`vibe` / `genre` / `combined`) and syncs idempotently: playlists are matched by the
-  `PLAYLIST_PREFIX`-prefixed name and updated in place rather than duplicated.
+  (`vibe` / `genre` / `subgenre` / `combined`) and syncs idempotently: playlists are
+  matched by the `PLAYLIST_PREFIX`-prefixed name and updated in place rather than
+  duplicated. The opt-in `subgenre` scheme falls back to the coarse genre for tracks
+  with no subgenre.
 
 - **`llm.py`** is optional Claude enrichment, off unless `USE_LLM` and `ANTHROPIC_API_KEY`
   are set; `anthropic` is imported lazily so it isn't a hard dependency.
