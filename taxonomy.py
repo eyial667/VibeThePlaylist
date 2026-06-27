@@ -1,14 +1,7 @@
-"""Loader for the controlled classification taxonomy (taxonomy.json).
-
-The taxonomy is the single editable source of allowed genre / subgenre / energy /
-vibe values for the genre-specification classifier. Keeping it in a JSON file (not
-Python) means non-developers can retune the vocabulary, and the classifier reads
-the same lists used to validate its output, so the two never drift.
-
-`load()` is cached; call `load.cache_clear()` (or pass a path) in tests that swap
-the file. The classifier and validator both go through `Taxonomy` so an "other"
-genre + free-text `suggested_label` is the only way to escape the vocabulary.
-"""
+"""Loader for the editable classification taxonomy (taxonomy.json) — the single
+source of allowed genre/subgenre/energy/vibe values. The classifier validates its
+output against the same lists, so an "other" genre + suggested_label is the only
+way out of the vocabulary. `load()` is cached; pass a path in tests."""
 from __future__ import annotations
 
 import json

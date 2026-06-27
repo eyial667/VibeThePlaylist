@@ -1,15 +1,7 @@
-"""Text normalization for robust identifier matching.
-
-The catalog spans American, European and Latin music with no dominant region, so
-matching has to survive: diacritics/accents (José, Beyoncé, Édith, Sigur Rós),
-non-ASCII titles, "feat."/"ft." guest credits, and remix/edit/version suffixes,
-plus multiple title variants for the same recording. These helpers are general
-robustness, not a regional special-case — they fold everything to a comparable
-form so a Spotify search query, a Deezer query, and a fallback dedupe key all
-agree on what "the same track" means.
-
-Kept dependency-free (stdlib `unicodedata` only) so it's cheap and testable.
-"""
+"""Text normalization for robust identifier matching across American, European
+and Latin catalogs: folds diacritics, "feat."/"ft." credits, and remix/edit/
+version suffixes so search queries and the fallback dedupe key agree on what
+"the same track" is. Stdlib-only (unicodedata)."""
 from __future__ import annotations
 
 import re

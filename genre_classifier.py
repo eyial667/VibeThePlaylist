@@ -1,16 +1,11 @@
 """Claude Haiku classifier: metadata + features -> genre/subgenre/energy/vibe.
 
-Behind the `Classifier` interface so another model (or a non-LLM classifier) can
-be A/B tested without touching the resolver, providers, or pipeline. The model is
-constrained to the controlled taxonomy (taxonomy.json): it must pick allowed
-genre/subgenre/energy/vibe values, or return genre="other" with a free-text
-`suggested_label` rather than inventing a label.
-
-Robustness:
-  * strict JSON via a prefilled assistant turn ('{') + low temperature
-  * defensive parsing (strip code fences, one retry on invalid JSON)
-  * pydantic validation, then coercion against the taxonomy
-  * energy is taken from numeric features when present, else the model's judgment
+Behind the `Classifier` interface so another model can be swapped in. Output is
+constrained to the controlled taxonomy (taxonomy.json) — the model picks allowed
+values or returns genre="other" with a free-text suggested_label. Strict JSON via
+a prefilled assistant turn, low temperature, fence-stripping + one retry on bad
+JSON, pydantic validation, then taxonomy coercion. Energy is taken from numeric
+features when present, else the model's judgment.
 """
 from __future__ import annotations
 
@@ -24,10 +19,7 @@ import config
 import taxonomy as tax
 import text_utils
 
-# Input dict the pipeline passes in (all optional except title/artist):
-#   {title, artist, album, release_year, genre_hints:[...], features:{...}|None}
-
-ENERGY_TEMPERATURE = 0.2
+TEMPERATURE = 0.2
 
 
 class Classification(BaseModel):
@@ -53,14 +45,10 @@ class Classification(BaseModel):
     def _listify(cls, v: Any) -> list:
         if v is None:
             return []
-        if isinstance(v, str):
-            return [v]
-        return list(v)
+        return [v] if isinstance(v, str) else list(v)
 
 
 class Classifier(abc.ABC):
-    """Assigns a Classification to a single track's inputs."""
-
     @abc.abstractmethod
     def classify(self, track: dict) -> Classification:
         ...
@@ -70,13 +58,9 @@ class Classifier(abc.ABC):
         return "unknown"
 
 
-# ---------------------------------------------------------------------------
-# Helpers shared by any Classifier (taxonomy coercion, energy from features)
-# ---------------------------------------------------------------------------
 def energy_from_features(features: dict | None) -> str | None:
-    """Derive a low/mid/high label from numeric energy (falling back to
-    danceability), using the same band cut-points as the rules engine. Returns
-    None when no numeric signal is available (then the LLM's judgment is used)."""
+    """low/mid/high from numeric energy (falling back to danceability), using the
+    same bands as the rules engine. None when no numeric signal is available."""
     if not features:
         return None
     value = features.get("energy")
@@ -84,29 +68,23 @@ def energy_from_features(features: dict | None) -> str | None:
         value = features.get("danceability")
     if value is None:
         return None
-    for lo, hi, name in config.ENERGY_BANDS:
-        if lo <= value < hi:
-            return name
-    return None
+    return next((name for lo, hi, name in config.ENERGY_BANDS if lo <= value < hi), None)
 
 
 def coerce_to_taxonomy(c: Classification, taxonomy: tax.Taxonomy) -> Classification:
-    """Force model output into the controlled vocabulary.
-
-    Unknown genre -> 'other' (keeping any suggested_label). Subgenre dropped if it
-    doesn't belong to the chosen genre. Vibes filtered to known tokens. Energy
-    dropped if not in the enum (the pipeline supplies a numeric-derived one)."""
+    """Force model output into the controlled vocabulary: unknown genre -> 'other'
+    (named genre kept as suggested_label), subgenre dropped if not under the
+    genre, vibes filtered to known tokens, invalid energy dropped."""
     genre = c.genre if taxonomy.is_genre(c.genre) else tax.OTHER
-    subgenre = c.subgenre if taxonomy.is_subgenre(genre, c.subgenre) else None
-    energy = c.energy if taxonomy.is_energy(c.energy) else None
-    vibes = taxonomy.coerce_vibes(c.vibe)
     suggested = c.suggested_label
     if genre == tax.OTHER and not suggested and c.genre and c.genre != tax.OTHER:
-        # Model named a genre we don't carry: keep it as the suggestion.
-        suggested = c.genre
+        suggested = c.genre  # model named a genre we don't carry
     return c.model_copy(update={
-        "genre": genre, "subgenre": subgenre, "energy": energy,
-        "vibe": vibes, "suggested_label": suggested,
+        "genre": genre,
+        "subgenre": c.subgenre if taxonomy.is_subgenre(genre, c.subgenre) else None,
+        "energy": c.energy if taxonomy.is_energy(c.energy) else None,
+        "vibe": taxonomy.coerce_vibes(c.vibe),
+        "suggested_label": suggested,
     })
 
 
@@ -116,9 +94,6 @@ def parse_json_object(text: str, *, prefill: str = "") -> dict:
     return json.loads(text_utils.strip_code_fences(prefill + text))
 
 
-# ---------------------------------------------------------------------------
-# HaikuClassifier
-# ---------------------------------------------------------------------------
 _SYSTEM = (
     "You are a precise music classification engine for an internationally diverse "
     "catalog (American, European and Latin music — assume no dominant region or "
@@ -131,26 +106,20 @@ _SYSTEM = (
 
 
 def _prompt(track: dict, taxonomy: tax.Taxonomy) -> str:
-    genres = taxonomy.genres
-    genre_lines = "\n".join(
-        f"  - {g}: {', '.join(subs)}" for g, subs in genres.items()
-    )
+    genre_lines = "\n".join(f"  - {g}: {', '.join(subs)}"
+                            for g, subs in taxonomy.genres.items())
     feats = track.get("features") or {}
-    feat_str = (
-        ", ".join(
-            f"{k}={feats[k]}" for k in ("energy", "danceability", "valence",
-                                        "acousticness", "tempo")
-            if feats.get(k) is not None
-        ) or "none (numeric audio features unavailable)"
-    )
-    hints = ", ".join(track.get("genre_hints") or []) or "none"
+    feat_str = ", ".join(f"{k}={feats[k]}" for k in (
+        "energy", "danceability", "valence", "acousticness", "tempo")
+        if feats.get(k) is not None) or "none (unavailable)"
     return (
         "Classify this track.\n\n"
-        f"Title: {track.get('title','')}\n"
-        f"Artist(s): {track.get('artist','')}\n"
+        f"Title: {track.get('title', '')}\n"
+        f"Artist(s): {track.get('artist', '')}\n"
         f"Album: {track.get('album') or 'unknown'}\n"
         f"Release year: {track.get('release_year') or 'unknown'}\n"
-        f"Spotify artist genre hints (noisy, optional): {hints}\n"
+        f"Spotify artist genre hints (noisy, optional): "
+        f"{', '.join(track.get('genre_hints') or []) or 'none'}\n"
         f"Numeric audio features: {feat_str}\n\n"
         "Allowed genres and their subgenres:\n"
         f"{genre_lines}\n\n"
@@ -162,13 +131,13 @@ def _prompt(track: dict, taxonomy: tax.Taxonomy) -> str:
         "- If numeric features are given, let them inform energy.\n"
         "- Use \"other\" + suggested_label only when no allowed genre fits.\n\n"
         "Return ONLY a JSON object with keys: genre (string), subgenre "
-        "(string|null), energy (string), vibe (array of strings), confidence "
-        "(0..1 float), suggested_label (string|null), notes (short string|null)."
+        "(string|null), energy (string), vibe (array), confidence (0..1 float), "
+        "suggested_label (string|null), notes (short string|null)."
     )
 
 
 class HaikuClassifier(Classifier):
-    """Claude Haiku 4.5 classifier (model id from config.CLASSIFIER_MODEL)."""
+    """Claude Haiku classifier (model id from config.CLASSIFIER_MODEL)."""
 
     def __init__(self, model: str | None = None, api_key: str | None = None,
                  taxonomy: tax.Taxonomy | None = None, client=None):
@@ -191,33 +160,27 @@ class HaikuClassifier(Classifier):
     def _call(self, prompt: str) -> str:
         """One Claude call with a prefilled '{' assistant turn for strict JSON."""
         msg = self.client.messages.create(
-            model=self.model,
-            max_tokens=400,
-            temperature=ENERGY_TEMPERATURE,
+            model=self.model, max_tokens=400, temperature=TEMPERATURE,
             system=_SYSTEM,
-            messages=[
-                {"role": "user", "content": prompt},
-                {"role": "assistant", "content": "{"},
-            ],
+            messages=[{"role": "user", "content": prompt},
+                      {"role": "assistant", "content": "{"}],
         )
         return msg.content[0].text
 
-    def classify(self, track: dict) -> Classification:
-        prompt = _prompt(track, self.taxonomy)
-        raw = None
-        data: dict | None = None
-        # one retry on invalid JSON
+    def _ask(self, prompt: str) -> dict | None:
+        """Call Claude and parse JSON, retrying once. None on total failure."""
         for attempt in range(2):
+            retry = "" if attempt == 0 else ("\n\nYour previous reply was not valid "
+                                             "JSON. Reply with ONLY the JSON object.")
             try:
-                raw = self._call(prompt if attempt == 0 else prompt +
-                                 "\n\nYour previous reply was not valid JSON. "
-                                 "Reply with ONLY the JSON object.")
-                data = parse_json_object(raw, prefill="{")
-                break
+                return parse_json_object(self._call(prompt + retry), prefill="{")
             except (json.JSONDecodeError, IndexError, KeyError):
-                data = None
+                continue
+        return None
+
+    def classify(self, track: dict) -> Classification:
+        data = self._ask(_prompt(track, self.taxonomy))
         if data is None:
-            # total parse failure -> safe "other" result, low confidence
             result = Classification(genre=tax.OTHER, confidence=0.1,
                                     notes="unparseable_model_output")
         else:
@@ -226,13 +189,7 @@ class HaikuClassifier(Classifier):
             except ValidationError:
                 result = Classification(genre=tax.OTHER, confidence=0.1,
                                         notes="schema_validation_failed")
-
         result = coerce_to_taxonomy(result, self.taxonomy)
-
-        # Energy from numeric features wins over the model's guess when present.
-        numeric_energy = energy_from_features(track.get("features"))
-        if numeric_energy:
-            result = result.model_copy(update={"energy": numeric_energy})
-        elif not result.energy:
-            result = result.model_copy(update={"energy": "mid"})  # never null
-        return result
+        # Numeric features win over the model's guess; energy is never null.
+        energy = energy_from_features(track.get("features")) or result.energy or "mid"
+        return result.model_copy(update={"energy": energy})
