@@ -111,6 +111,74 @@ def cmd_llm(args) -> None:
         print(f"LLM-refined {n} track(s).")
 
 
+def cmd_genre_classify(args) -> None:
+    """Genre/subgenre/energy/vibe classification, persisted by ISRC.
+
+    Single track:  --isrc / --spotify-id / --track "artist - title"
+    Whole library: --all   (resumable; skips classified rows unless --reclassify)
+    """
+    db.init()
+    import logging
+    import genre_pipeline as gp
+
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+    if not config.ANTHROPIC_API_KEY:
+        print("ANTHROPIC_API_KEY not set — add it to .env to use the classifier.")
+        return
+
+    pipeline = gp.build_default_pipeline()
+
+    if args.all:
+        bar = tqdm(total=0, desc="genre-classify")
+
+        def progress(done, total):
+            bar.total = total
+            bar.n = done
+            bar.refresh()
+
+        stats = pipeline.classify_library(
+            reclassify=args.reclassify, limit=args.limit, progress=progress)
+        bar.close()
+        print("\nCoverage summary:")
+        for line in stats.summary_lines():
+            print(f"  {line}")
+        return
+
+    # --- single-track flows ---
+    if args.isrc:
+        track = gp.TrackInput(isrc=args.isrc)
+    elif args.spotify_id:
+        track = gp.TrackInput(spotify_id=args.spotify_id)
+    elif args.track:
+        artist, title = gp.parse_track_arg(args.track)
+        track = gp.TrackInput(artist=artist, title=title)
+    else:
+        print("Provide one of --isrc / --spotify-id / --track \"artist - title\", "
+              "or --all for the whole library.")
+        return
+
+    row = pipeline.classify_track(track)
+    vibes = ", ".join(row["vibe"]) or "—"
+    sub = row["subgenre"] or "—"
+    print(f"\n{row['artist']} — {row['title']}")
+    print(f"  ISRC:     {row['isrc']}"
+          + ("  (no ISRC — fallback key)" if row["isrc"].startswith("key:") else ""))
+    print(f"  Genre:    {row['genre']} / {sub}")
+    print(f"  Energy:   {row['energy']}")
+    print(f"  Vibe:     {vibes}")
+    print(f"  Features: {row['features_source']}"
+          + (f" (energy={row['energy_raw']}, tempo={row['tempo']})"
+             if row["features_source"] != "none" else ""))
+    print(f"  Confidence: {row['confidence']}"
+          + (f"   match_confidence: {row['match_confidence']}"
+             if row["match_confidence"] is not None else ""))
+    if row["notes"]:
+        print(f"  Notes:    {row['notes']}")
+
+
 def cmd_playlists(args) -> None:
     db.init()
     import playlists
@@ -170,6 +238,25 @@ def main() -> None:
     lm = sub.add_parser("llm", help="refine mood/energy/vibe with Claude (needs ANTHROPIC_API_KEY)")
     lm.add_argument("--force", action="store_true", help="re-refine all tracks, even already-done ones")
     lm.set_defaults(func=cmd_llm)
+
+    gc = sub.add_parser(
+        "genre-classify",
+        help="classify genre/subgenre/energy/vibe via ISRC + ReccoBeats + Claude "
+             "(needs ANTHROPIC_API_KEY)")
+    gsel = gc.add_mutually_exclusive_group()
+    gsel.add_argument("--isrc", help="classify a single track by ISRC")
+    gsel.add_argument("--spotify-id", dest="spotify_id",
+                      help="classify a single track by Spotify track ID")
+    gsel.add_argument("--track", help='classify a single track by "artist - title"')
+    gsel.add_argument("--all", action="store_true",
+                      help="batch-classify the whole library (resumable)")
+    gc.add_argument("--reclassify", action="store_true",
+                    help="with --all: re-classify rows already classified")
+    gc.add_argument("--limit", type=int, default=None,
+                    help="with --all: cap how many tracks to process this run")
+    gc.add_argument("--verbose", action="store_true",
+                    help="log the resolution/feature path taken per track")
+    gc.set_defaults(func=cmd_genre_classify)
 
     pl = sub.add_parser("playlists")
     pl.add_argument("--dry-run", action="store_true", help="show clusters without writing")

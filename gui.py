@@ -383,6 +383,12 @@ class App(ttk.Frame):
         self.create_btn = ttk.Button(controls, text="Create Spotify playlist…",
                                       command=self.create_playlist)
         self.create_btn.pack(side="left", padx=(8, 0))
+        self.classify_btn = ttk.Button(controls, text="Classify track…",
+                                       command=self.classify_track)
+        self.classify_btn.pack(side="left", padx=(8, 0))
+        self.classify_lib_btn = ttk.Button(controls, text="Classify library…",
+                                           command=self.classify_library)
+        self.classify_lib_btn.pack(side="left", padx=(8, 0))
         ttk.Label(controls, text="   Match:").pack(side="left")
         self.match_mode = tk.StringVar(value="any")
         ttk.Radiobutton(controls, text="Any selected", value="any",
@@ -532,6 +538,119 @@ class App(ttk.Frame):
             messagebox.showerror("Playlist failed", str(exc))
         else:
             messagebox.showinfo("Playlist ready", f"'{full}' now has {count} track(s).")
+
+    # --- genre-specification classify (off the UI thread) -----------------
+    def _selected_track_seed(self) -> str:
+        """Prefill text for the classify prompt from the selected table row."""
+        sel = self.tree.selection()
+        if sel:
+            vals = self.tree.item(sel[0], "values")
+            if vals:
+                return f"{vals[0]} - {vals[1]}"  # "artist - title"
+        return ""
+
+    def classify_track(self) -> None:
+        """Classify one track (selected row or typed 'artist - title') and show
+        the stored result. Network + LLM run on a worker thread."""
+        seed = self._selected_track_seed()
+        spec = self._ask_string(
+            "Classify track",
+            "Enter a track as  artist - title  (or an ISRC, or a Spotify track ID).\n"
+            "Resolves to ISRC, fetches features, and classifies with Claude.",
+            initial=seed,
+        )
+        if not spec:
+            return
+        spec = spec.strip()
+        self.classify_btn.config(state="disabled", text="Classifying…")
+
+        def worker():
+            try:
+                import genre_pipeline as gp
+                import text_utils
+                pipe = gp.build_default_pipeline()
+                if text_utils.is_real_isrc(spec):
+                    ti = gp.TrackInput(isrc=spec)
+                elif " " not in spec and len(spec) == 22:  # looks like a Spotify id
+                    ti = gp.TrackInput(spotify_id=spec)
+                else:
+                    artist, title = gp.parse_track_arg(spec)
+                    ti = gp.TrackInput(artist=artist, title=title)
+                row = pipe.classify_track(ti)
+                self.after(0, lambda: self._classify_done(row, None))
+            except Exception as exc:  # noqa: BLE001 - surface failures to the user
+                self.after(0, lambda: self._classify_done(None, exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _classify_done(self, row: dict | None, exc: Exception | None) -> None:
+        self.classify_btn.config(state="normal", text="Classify track…")
+        if exc is not None:
+            messagebox.showerror("Classification failed", str(exc))
+            return
+        vibes = ", ".join(row["vibe"]) or "—"
+        isrc = row["isrc"] + ("  (fallback key — no ISRC)"
+                              if row["isrc"].startswith("key:") else "")
+        feats = row["features_source"]
+        if feats != "none":
+            feats += f"  (energy={row['energy_raw']}, tempo={row['tempo']})"
+        messagebox.showinfo(
+            "Classification stored",
+            f"{row['artist']} — {row['title']}\n\n"
+            f"ISRC:    {isrc}\n"
+            f"Genre:   {row['genre']} / {row['subgenre'] or '—'}\n"
+            f"Energy:  {row['energy']}\n"
+            f"Vibe:    {vibes}\n"
+            f"Features: {feats}\n"
+            f"Confidence: {row['confidence']}",
+        )
+
+    def classify_library(self) -> None:
+        """Batch-classify the whole library off the UI thread, with a live
+        progress window. Resumable — skips already-classified tracks."""
+        if not messagebox.askyesno(
+            "Classify library",
+            "Classify every library track (genre/subgenre/energy/vibe)?\n\n"
+            "Already-classified tracks are skipped. This calls ReccoBeats, "
+            "Deezer and Claude and may take a while; it's safe to close the "
+            "window — progress is saved per track.",
+        ):
+            return
+        self.classify_lib_btn.config(state="disabled", text="Classifying…")
+        prog = tk.Toplevel(self)
+        prog.title("Classifying library…")
+        prog.transient(self.winfo_toplevel())
+        status = tk.StringVar(value="Starting…")
+        ttk.Label(prog, textvariable=status).pack(padx=20, pady=10)
+        pbar = ttk.Progressbar(prog, length=320, mode="determinate")
+        pbar.pack(padx=20, pady=(0, 12))
+
+        def progress(done, total):
+            def upd():
+                pbar.config(maximum=max(total, 1), value=done)
+                status.set(f"{done} / {total} tracks")
+            self.after(0, upd)
+
+        def worker():
+            try:
+                import genre_pipeline as gp
+                stats = gp.build_default_pipeline().classify_library(progress=progress)
+                self.after(0, lambda: self._classify_lib_done(prog, stats, None))
+            except Exception as exc:  # noqa: BLE001
+                self.after(0, lambda: self._classify_lib_done(prog, None, exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _classify_lib_done(self, prog, stats, exc: Exception | None) -> None:
+        self.classify_lib_btn.config(state="normal", text="Classify library…")
+        try:
+            prog.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+        if exc is not None:
+            messagebox.showerror("Batch classification failed", str(exc))
+            return
+        messagebox.showinfo("Library classified", "\n".join(stats.summary_lines()))
 
 
 def main() -> None:
