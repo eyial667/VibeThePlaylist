@@ -35,6 +35,32 @@ def _match_buckets(raw_genres: list[str]) -> list[str]:
     return ordered[:cap]
 
 
+def _match_subgenres(raw_genres: list[str], tags: list[str], genres: list[str]) -> list[str]:
+    """Pick precise subgenres nested under the track's already-matched buckets.
+
+    Mirrors `_match_buckets`: each candidate subgenre is scored by needle hits
+    against the combined raw genres + Last.fm tags, but only subgenres whose
+    parent bucket is in `genres` are considered — so a subgenre never contradicts
+    the coarse genre. Returns strongest-first, capped to config.MAX_SUBGENRES.
+    Empty when nothing matches (consumers then fall back to the coarse genre).
+    """
+    hay = " | ".join(g.lower() for g in (raw_genres + tags))
+    scored: list[tuple[int, str]] = []
+    for bucket in genres:
+        for label, needles in config.SUBGENRE_BUCKETS.get(bucket, {}).items():
+            hits = sum(1 for n in needles if n in hay)
+            if hits:
+                scored.append((hits, label))
+    if not scored:
+        return []
+    scored.sort(key=lambda x: -x[0])  # stable: ties keep config order
+    ordered: list[str] = []
+    for _, label in scored:
+        if label not in ordered:
+            ordered.append(label)
+    return ordered[: config.MAX_SUBGENRES]
+
+
 def _match_moods(tags: list[str]) -> list[str]:
     hay = " | ".join(tags)
     return [
@@ -142,6 +168,7 @@ def classify_all(overwrite_llm: bool = False) -> int:
         raw_genres_plus = raw_genres + tags  # tags also carry genre hints
 
         genres = _match_buckets(raw_genres_plus)
+        subgenres = _match_subgenres(raw_genres, tags, genres)
         moods = _match_moods(tags)
         band = _energy_band(features.get(tid), tags, moods, genres)
         vibes = _match_vibes(band, genres, moods)
@@ -149,6 +176,7 @@ def classify_all(overwrite_llm: bool = False) -> int:
         rows.append({
             "track_id": tid,
             "genre_buckets": json.dumps(genres),
+            "subgenres": json.dumps(subgenres),
             "energy_band": band,
             "moods": json.dumps(moods),
             "vibes": json.dumps(vibes),

@@ -180,13 +180,16 @@ def cmd_playlists(args) -> None:
 def cmd_query(args) -> None:
     db.init()
     sql = (
-        "SELECT t.artist_name, t.name, l.genre_buckets, l.energy_band, l.vibes "
+        "SELECT t.artist_name, t.name, l.genre_buckets, l.subgenres, l.energy_band, l.vibes "
         "FROM labels l JOIN tracks t ON t.id=l.track_id WHERE 1=1"
     )
     params: list = []
     if args.genre:
         sql += " AND l.genre_buckets LIKE ?"
         params.append(f"%{args.genre}%")
+    if args.subgenre:
+        sql += " AND l.subgenres LIKE ?"
+        params.append(f"%{args.subgenre}%")
     if args.vibe:
         sql += " AND l.vibes LIKE ?"
         params.append(f"%{args.vibe}%")
@@ -199,9 +202,37 @@ def cmd_query(args) -> None:
         rows = conn.execute(sql, params).fetchall()
     for r in rows:
         genres = ", ".join(json.loads(r["genre_buckets"] or "[]"))
+        # show precise subgenres when known, else fall back to the coarse genre
+        subgenres = json.loads(r["subgenres"] or "[]")
+        precise = ", ".join(subgenres) if subgenres else genres
         vibes = ", ".join(json.loads(r["vibes"] or "[]"))
-        print(f"{r['artist_name']} — {r['name']}  [{genres} | {r['energy_band']} | {vibes}]")
+        print(f"{r['artist_name']} — {r['name']}  [{precise} | {r['energy_band']} | {vibes}]")
     print(f"\n{len(rows)} result(s).")
+
+
+def cmd_gen_subgenres(args) -> None:
+    import subgenre_gen
+    if not subgenre_gen.available():
+        print("gen-subgenres needs ANTHROPIC_API_KEY (set it in .env).")
+        return
+    if args.genre:
+        targets = [args.genre]
+    elif args.all:
+        targets = list(config.GENRE_BUCKETS.keys())
+    else:
+        targets = subgenre_gen.missing_genres()
+    if not targets:
+        print("All genres already have subgenres. Use --all to regenerate, "
+              "or --genre NAME to target one.")
+        return
+    print(f"Generating subgenres for: {', '.join(targets)}")
+    counts = subgenre_gen.regenerate(
+        targets,
+        progress=lambda g, n: print(f"  {g}: {n} subgenre(s)"),
+    )
+    total = sum(counts.values())
+    print(f"Wrote {total} subgenre(s) across {len(counts)} genre(s) to "
+          "subgenres_generated.py. Run `python cli.py classify` to apply.")
 
 
 def cmd_all(args) -> None:
@@ -249,8 +280,16 @@ def main() -> None:
     pl.add_argument("--dry-run", action="store_true", help="show clusters without writing")
     pl.set_defaults(func=cmd_playlists)
 
+    gs = sub.add_parser("gen-subgenres",
+                        help="research subgenres for new genres via Claude + web search")
+    gs.add_argument("--genre", help="generate for a single coarse genre bucket")
+    gs.add_argument("--all", action="store_true",
+                    help="regenerate every bucket, not just those missing subgenres")
+    gs.set_defaults(func=cmd_gen_subgenres)
+
     q = sub.add_parser("query")
     q.add_argument("--genre")
+    q.add_argument("--subgenre")
     q.add_argument("--vibe")
     q.add_argument("--energy", choices=["low", "mid", "high"])
     q.add_argument("--limit", type=int, default=50)

@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS tags (
 CREATE TABLE IF NOT EXISTS labels (
     track_id      TEXT PRIMARY KEY,
     genre_buckets TEXT,   -- json list
+    subgenres     TEXT,   -- json list (precise, nested under genre_buckets)
     energy_band   TEXT,
     moods         TEXT,   -- json list
     vibes         TEXT,   -- json list
@@ -111,6 +112,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("tracks", "spotify_id", "TEXT"),
     ("tracks", "match_confidence", "REAL"),
     ("tracks", "resolution_method", "TEXT"),
+    ("labels", "subgenres", "TEXT"),  # from the subgenre classification work
 ]
 
 
@@ -132,7 +134,9 @@ def init() -> None:
 
 
 def _apply_migrations(conn: sqlite3.Connection) -> None:
-    """Add any columns introduced after a DB was first created (idempotent)."""
+    """Add any columns introduced after a DB was first created (idempotent).
+    `CREATE TABLE IF NOT EXISTS` won't alter an existing table, so new nullable
+    columns are backfilled here on every init()."""
     for table, column, coltype in _MIGRATIONS:
         cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in cols:
@@ -252,14 +256,18 @@ def track_ids_missing_tags() -> set[str]:
 
 # --- labels ---------------------------------------------------------------
 def upsert_labels(rows: Iterable[dict]) -> None:
+    # `subgenres` is optional for callers (added after the original schema);
+    # default to an empty JSON list so older code paths keep working.
+    payload = [{"subgenres": "[]", **r} for r in rows]
     with connect() as conn:
         conn.executemany(
-            "INSERT INTO labels(track_id, genre_buckets, energy_band, moods, vibes, method, classified_at) "
-            "VALUES(:track_id, :genre_buckets, :energy_band, :moods, :vibes, :method, :classified_at) "
+            "INSERT INTO labels(track_id, genre_buckets, subgenres, energy_band, moods, vibes, method, classified_at) "
+            "VALUES(:track_id, :genre_buckets, :subgenres, :energy_band, :moods, :vibes, :method, :classified_at) "
             "ON CONFLICT(track_id) DO UPDATE SET genre_buckets=excluded.genre_buckets, "
-            "energy_band=excluded.energy_band, moods=excluded.moods, vibes=excluded.vibes, "
+            "subgenres=excluded.subgenres, energy_band=excluded.energy_band, "
+            "moods=excluded.moods, vibes=excluded.vibes, "
             "method=excluded.method, classified_at=excluded.classified_at",
-            list(rows),
+            payload,
         )
 
 

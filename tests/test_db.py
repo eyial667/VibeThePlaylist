@@ -53,6 +53,21 @@ def test_meta_roundtrip(temp_db):
     assert db.get_meta("audio_features_available") == "0"
 
 
+def test_migrate_adds_subgenres_column_to_old_labels(temp_db):
+    # simulate a DB created before the subgenres column existed
+    with db.connect() as conn:
+        conn.execute("DROP TABLE labels")
+        conn.execute(
+            "CREATE TABLE labels (track_id TEXT PRIMARY KEY, genre_buckets TEXT, "
+            "energy_band TEXT, moods TEXT, vibes TEXT, method TEXT, classified_at TEXT)"
+        )
+    db.init()  # runs the migration
+    with db.connect() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(labels)")}
+    assert "subgenres" in cols
+    db.init()  # idempotent: a second run must not error
+
+
 def test_labels_upsert_overwrites(temp_db):
     db.upsert_tracks([_track("t1")])
     row = {"track_id": "t1", "genre_buckets": "[]", "energy_band": "low",

@@ -14,16 +14,22 @@ def _clusters() -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT track_id, genre_buckets, vibes FROM labels"
+            "SELECT track_id, genre_buckets, subgenres, vibes FROM labels"
         ).fetchall()
 
     for r in rows:
         tid = r["track_id"]
         genres = json.loads(r["genre_buckets"] or "[]")
+        subgenres = json.loads(r["subgenres"] or "[]")
         vibes = json.loads(r["vibes"] or "[]")
         if "genre" in config.PLAYLIST_SCHEMES:
             for g in genres:
                 out.setdefault(f"{g}", []).append(tid)
+        if "subgenre" in config.PLAYLIST_SCHEMES:
+            # precise subgenre playlists; fall back to the coarse genre so a
+            # track with no subgenre still lands somewhere
+            for sg in (subgenres or genres):
+                out.setdefault(f"{sg}", []).append(tid)
         if "vibe" in config.PLAYLIST_SCHEMES:
             for v in vibes:
                 out.setdefault(f"{v}", []).append(tid)
