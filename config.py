@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "library.db"
-TAXONOMY_PATH = Path(os.getenv("TAXONOMY_PATH", ROOT / "taxonomy.json"))
+TAXONOMY_PATH = Path(os.getenv("TAXONOMY_PATH", ROOT / "genreclass" / "taxonomy.json"))
 
 # --- Credentials (from .env) ---
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "")

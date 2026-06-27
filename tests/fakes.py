@@ -10,8 +10,8 @@ import json
 import pathlib
 
 import text_utils
-from genre_classifier import Classification, Classifier
-from providers import (SRC_EXTRACTED, SRC_LOOKUP, FeatureProvider,
+from genreclass.classifier import Classification, Classifier
+from genreclass.providers import (SRC_EXTRACTED, SRC_LOOKUP, FeatureProvider,
                        MetadataProvider)
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "tracks_multiregion.json"

@@ -566,7 +566,7 @@ class App(ttk.Frame):
 
         def worker():
             try:
-                import genre_pipeline as gp
+                import genreclass as gp
                 import text_utils
                 pipe = gp.build_default_pipeline()
                 if text_utils.is_real_isrc(spec):
@@ -588,7 +588,7 @@ class App(ttk.Frame):
         if exc is not None:
             messagebox.showerror("Classification failed", str(exc))
             return
-        import genre_pipeline as gp
+        import genreclass as gp
         messagebox.showinfo("Classification stored",
                             "\n".join(gp.format_result_lines(row)))
 
@@ -620,7 +620,7 @@ class App(ttk.Frame):
 
         def worker():
             try:
-                import genre_pipeline as gp
+                import genreclass as gp
                 stats = gp.build_default_pipeline().classify_library(progress=progress)
                 self.after(0, lambda: self._classify_lib_done(prog, stats, None))
             except Exception as exc:  # noqa: BLE001

@@ -119,7 +119,7 @@ def cmd_genre_classify(args) -> None:
     """
     db.init()
     import logging
-    import genre_pipeline as gp
+    import genreclass as gp
 
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,

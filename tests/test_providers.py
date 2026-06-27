@@ -5,7 +5,7 @@ so the lookup->extraction control flow and the DB cache layer are exercised
 without any network.
 """
 from fakes import FakeResponse, FakeSession
-from providers import (SRC_EXTRACTED, SRC_LOOKUP, DeezerClient,
+from genreclass.providers import (SRC_EXTRACTED, SRC_LOOKUP, DeezerClient,
                        ReccoBeatsFeatureProvider)
 
 RB = "https://api.reccobeats.com"

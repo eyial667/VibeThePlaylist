@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import text_utils
 
 if TYPE_CHECKING:
-    from providers import MetadataProvider
+    from .providers import MetadataProvider
 
 WEAK_MATCH_THRESHOLD = 0.62  # below this, a name-search match is flagged weak
 

@@ -92,7 +92,16 @@ fetch (spotify_client) -> enrich (spotify_client + enrich) -> classify -> {query
   are set; `anthropic` is imported lazily so it isn't a hard dependency.
 
 - **`gui.py`** is a read-only Tkinter browser; it loads all labelled rows once and filters
-  in-memory.
+  in-memory. It also exposes the genre-specification "Classify track / library" actions.
+
+- **`genreclass/`** is the ISRC-based genre/subgenre/energy/vibe classifier (a self-
+  contained package, separate from the rules pipeline above): `resolver.py` (any
+  identifier → canonical ISRC), `providers.py` (Spotify `MetadataProvider` +
+  ReccoBeats/Deezer `FeatureProvider`), `classifier.py` (Claude Haiku, constrained to
+  `taxonomy.json`), `pipeline.py` (resolve → features → classify → persist; single +
+  resumable batch). Reuses root `config.py`/`db.py`/`text_utils.py`/`spotify_client.py`;
+  numeric features come from ReccoBeats only (never Spotify audio-features). Entered via
+  `python cli.py genre-classify` and persisted to the `classifications` table by ISRC.
 
 ## Conventions
 

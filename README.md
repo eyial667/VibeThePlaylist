@@ -123,10 +123,26 @@ Needs `ANTHROPIC_API_KEY` in `.env`. In the GUI, **Classify track…** classifie
 the selected/entered track and shows the stored result; **Classify library…**
 runs the resumable batch off the UI thread with a progress bar.
 
+The feature lives in the **`genreclass/`** package, separate from the original
+pipeline at the repo root:
+
+```
+genreclass/
+  resolver.py    any identifier -> canonical ISRC (the join key)
+  providers.py   MetadataProvider (Spotify) + FeatureProvider (ReccoBeats/Deezer)
+  classifier.py  Claude Haiku classifier, constrained to taxonomy.json
+  pipeline.py    resolve -> features -> classify -> persist (single + batch)
+  taxonomy.py    loader for taxonomy.json (the editable controlled vocabulary)
+  taxonomy.json  the controlled vocabulary itself
+```
+
+Shared infrastructure (`config.py`, `db.py`, `text_utils.py`, `spotify_client.py`)
+stays at the root and is reused by the original pipeline.
+
 ### How a track is resolved to an ISRC
 
 Everything downstream joins on **ISRC**, never on raw artist+title, so each input
-is normalized first (`resolver.py`):
+is normalized first (`genreclass/resolver.py`):
 
 | Input you have        | What happens                                                        |
 |-----------------------|---------------------------------------------------------------------|
@@ -163,17 +179,17 @@ cached in the DB keyed by ISRC, so re-runs don't re-hit the APIs.
 
 ### Editing the taxonomy
 
-The classifier is constrained to a controlled vocabulary in **`taxonomy.json`**
-(allowed `genres` → `subgenres`, the `energy` enum, and the `vibe` list). The
-model must pick from these or return `genre: "other"` with a free-text
-`suggested_label` rather than inventing a label. Edit `taxonomy.json` to retune —
-add/remove genres, subgenres, or vibes — then re-run
-`python cli.py genre-classify --all --reclassify`. The model id is configurable
-via `CLASSIFIER_MODEL` in `.env` (default `claude-haiku-4-5`) so you can A/B
-another model without code changes. Providers (`MetadataProvider`,
-`FeatureProvider`, `Classifier`) sit behind interfaces in `providers.py` /
-`genre_classifier.py`, so a paid feature source or a different model can be
-dropped in later.
+The classifier is constrained to a controlled vocabulary in
+**`genreclass/taxonomy.json`** (allowed `genres` → `subgenres`, the `energy`
+enum, and the `vibe` list). The model must pick from these or return
+`genre: "other"` with a free-text `suggested_label` rather than inventing a
+label. Edit the file to retune — add/remove genres, subgenres, or vibes — then
+re-run `python cli.py genre-classify --all --reclassify`. The model id is
+configurable via `CLASSIFIER_MODEL` in `.env` (default `claude-haiku-4-5`) so you
+can A/B another model without code changes. Providers (`MetadataProvider`,
+`FeatureProvider`, `Classifier`) sit behind interfaces in
+`genreclass/providers.py` and `genreclass/classifier.py`, so a paid feature
+source or a different model can be dropped in later.
 
 ## Tuning
 Open `config.py`:

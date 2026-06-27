@@ -16,14 +16,15 @@ from datetime import datetime, timezone
 
 import config
 import db
-import providers as P
 import text_utils
-from genre_classifier import Classifier, HaikuClassifier, energy_from_features
-from providers import (FeatureProvider, MetadataProvider, ReccoBeatsFeatureProvider,
-                       SpotifyMetadataProvider)
-from resolver import IdentifierResolver, Resolution
 
-log = logging.getLogger("genre_pipeline")
+from . import providers as P
+from .classifier import Classifier, HaikuClassifier, energy_from_features
+from .providers import (FeatureProvider, MetadataProvider,
+                        ReccoBeatsFeatureProvider, SpotifyMetadataProvider)
+from .resolver import IdentifierResolver, Resolution
+
+log = logging.getLogger("genreclass")
 
 
 @dataclass

@@ -7,11 +7,11 @@ final coverage summary.
 """
 import config
 import db
-import taxonomy as tax
+from genreclass import taxonomy as tax
 from fakes import (FakeClassifier, FakeFeatureProvider, FakeMetadataProvider,
                    load_fixture)
-from genre_pipeline import CoverageStats, GenrePipeline, TrackInput
-from providers import SRC_EXTRACTED, SRC_LOOKUP, SRC_NONE
+from genreclass.pipeline import CoverageStats, GenrePipeline, TrackInput
+from genreclass.providers import SRC_EXTRACTED, SRC_LOOKUP, SRC_NONE
 
 TRACKS = load_fixture()
 

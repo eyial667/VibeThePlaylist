@@ -16,8 +16,9 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 import config
-import taxonomy as tax
 import text_utils
+
+from . import taxonomy as tax
 
 TEMPERATURE = 0.2
 

@@ -1,6 +1,6 @@
 """HaikuClassifier: strict JSON parsing, taxonomy coercion, energy derivation."""
-import taxonomy as tax
-from genre_classifier import (Classification, HaikuClassifier, coerce_to_taxonomy,
+from genreclass import taxonomy as tax
+from genreclass.classifier import (Classification, HaikuClassifier, coerce_to_taxonomy,
                               energy_from_features, parse_json_object)
 
 
