@@ -11,11 +11,13 @@ from spotipy.oauth2 import SpotifyOAuth, SpotifyPKCE
 
 import config
 
-_TOKEN_CACHE = str(config.DATA_DIR / ".spotify_token_cache")
+
+def _token_cache_path() -> str:
+    return str(config.TOKEN_CACHE_PATH)
 
 
 def _get_cached_token() -> dict | None:
-    return CacheFileHandler(cache_path=_TOKEN_CACHE).get_cached_token()
+    return CacheFileHandler(cache_path=_token_cache_path()).get_cached_token()
 
 
 def _required_scopes(scopes: str | None = None) -> set[str]:
@@ -57,14 +59,15 @@ def get_client_pkce() -> spotipy.Spotify:
     """PKCE-based client — no client secret required. Used by the GUI."""
     if not config.SPOTIFY_CLIENT_ID:
         raise RuntimeError(
-            "Missing SPOTIFY_CLIENT_ID. Add it to .env or bundle it in config.py."
+            "Spotify login is not configured. Set SPOTIFY_CLIENT_ID in your environment "
+            "or local_settings.py before launching the app."
         )
     _clear_cached_token_if_scope_mismatch()
     auth = SpotifyPKCE(
         client_id=config.SPOTIFY_CLIENT_ID,
         redirect_uri=config.SPOTIFY_REDIRECT_URI,
         scope=config.SPOTIFY_SCOPES,
-        cache_path=_TOKEN_CACHE,
+        cache_path=_token_cache_path(),
         open_browser=True,
     )
     return spotipy.Spotify(auth_manager=auth)
@@ -73,7 +76,7 @@ def get_client_pkce() -> spotipy.Spotify:
 def logout() -> None:
     """Remove the cached token so the next launch shows the login screen."""
     try:
-        os.remove(_TOKEN_CACHE)
+        os.remove(_token_cache_path())
     except FileNotFoundError:
         pass
 
@@ -81,8 +84,8 @@ def logout() -> None:
 def get_client() -> spotipy.Spotify:
     if not (config.SPOTIFY_CLIENT_ID and config.SPOTIFY_CLIENT_SECRET):
         raise RuntimeError(
-            "Missing Spotify credentials. Copy .env.example to .env and fill in "
-            "SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET."
+            "Missing Spotify credentials. Set SPOTIFY_CLIENT_ID and "
+            "SPOTIFY_CLIENT_SECRET in your environment or local_settings.py."
         )
     _clear_cached_token_if_scope_mismatch()
     auth = SpotifyOAuth(
@@ -90,7 +93,7 @@ def get_client() -> spotipy.Spotify:
         client_secret=config.SPOTIFY_CLIENT_SECRET,
         redirect_uri=config.SPOTIFY_REDIRECT_URI,
         scope=config.SPOTIFY_SCOPES,
-        cache_path=_TOKEN_CACHE,
+        cache_path=_token_cache_path(),
         open_browser=True,
     )
     return spotipy.Spotify(auth_manager=auth)

@@ -398,8 +398,6 @@ def row_matches(row: dict, inc: dict, exc: dict, any_modes: dict[str, bool]) -> 
 # Preview player (unchanged logic; callback posted to main thread by caller)
 # ---------------------------------------------------------------------------
 
-_PREVIEW_CACHE = str(config.DATA_DIR / ".preview_cache.mp3")
-
 
 class _PreviewPlayer:
     def __init__(self):
@@ -445,9 +443,10 @@ class _PreviewPlayer:
             if self.playing_id != track_id:
                 return
             self._pg.mixer.music.stop()
-            with open(_PREVIEW_CACHE, "wb") as f:
+            config.PREVIEW_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(config.PREVIEW_CACHE_PATH, "wb") as f:
                 f.write(data)
-            self._pg.mixer.music.load(_PREVIEW_CACHE)
+            self._pg.mixer.music.load(str(config.PREVIEW_CACHE_PATH))
             self._pg.mixer.music.play()
             while self._pg.mixer.music.get_busy() and self.playing_id == track_id:
                 time.sleep(0.1)

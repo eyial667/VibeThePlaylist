@@ -3,11 +3,16 @@
 .env.*
 !.env.example
 .spotify_token_cache
+local_settings.py
 
 # --- Generated data ---
 data/
 *.db
 *.log
+
+# --- Build artifacts ---
+build/
+dist/
 
 # --- Python ---
 __pycache__/
