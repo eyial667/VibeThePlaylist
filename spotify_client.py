@@ -16,7 +16,7 @@ def _token_cache_path() -> str:
     return str(config.TOKEN_CACHE_PATH)
 
 
-def _pkce_config_error() -> str:
+def _missing_client_id_error() -> str:
     if config.PACKAGED_APP:
         return (
             "Spotify login is not configured in this build. Rebuild the app with a bundled "
@@ -28,7 +28,7 @@ def _pkce_config_error() -> str:
     )
 
 
-def _oauth_config_error() -> str:
+def _missing_client_credentials_error() -> str:
     if config.PACKAGED_APP:
         return (
             "Spotify credentials are not configured in this build. Rebuild the app with "
@@ -82,7 +82,7 @@ def is_authenticated() -> bool:
 def get_client_pkce() -> spotipy.Spotify:
     """PKCE-based client — no client secret required. Used by the GUI."""
     if not config.SPOTIFY_CLIENT_ID:
-        raise RuntimeError(_pkce_config_error())
+        raise RuntimeError(_missing_client_id_error())
     _clear_cached_token_if_scope_mismatch()
     auth = SpotifyPKCE(
         client_id=config.SPOTIFY_CLIENT_ID,
@@ -104,7 +104,7 @@ def logout() -> None:
 
 def get_client() -> spotipy.Spotify:
     if not (config.SPOTIFY_CLIENT_ID and config.SPOTIFY_CLIENT_SECRET):
-        raise RuntimeError(_oauth_config_error())
+        raise RuntimeError(_missing_client_credentials_error())
     _clear_cached_token_if_scope_mismatch()
     auth = SpotifyOAuth(
         client_id=config.SPOTIFY_CLIENT_ID,

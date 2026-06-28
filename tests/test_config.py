@@ -30,7 +30,7 @@ def test_data_dir_env_override_updates_runtime_paths(monkeypatch, tmp_path):
     assert module.CACHE_DIR.exists()
 
 
-def test_explicit_runtime_path_overrides_win(monkeypatch, tmp_path):
+def test_explicit_runtime_path_overrides_default_paths(monkeypatch, tmp_path):
     data_dir = tmp_path / "data"
     cache_dir = tmp_path / "cache"
     db_path = tmp_path / "state" / "library.sqlite3"
