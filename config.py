@@ -161,18 +161,20 @@ SUBGENRE_BUCKETS: dict[str, dict[str, list[str]]] = _merge_subgenres(
 # Cap on subgenres the free classifier keeps per track (strongest first).
 MAX_SUBGENRES = 2
 
-# --- Vibe / mood / activity rules ------------------------------------------
-# Mood tag normalisation: map raw Last.fm tag substrings -> canonical mood.
-MOOD_TAGS: dict[str, list[str]] = {
-    "melancholic": ["sad", "melancholic", "melancholy", "depressing", "somber"],
-    "chill": ["chill", "mellow", "relaxing", "calm", "laid-back", "smooth"],
-    "energetic": ["energetic", "upbeat", "hype", "banger", "intense", "driving"],
-    "euphoric": ["euphoric", "uplifting", "happy", "feel good", "joyful"],
-    "dark": ["dark", "moody", "brooding", "haunting", "ominous"],
-    "romantic": ["romantic", "love", "sensual", "sexy"],
-    "dreamy": ["dreamy", "ethereal", "atmospheric", "ambient", "spacey"],
-    "aggressive": ["aggressive", "angry", "heavy", "brutal"],
-}
+# --- Vibe / activity rules --------------------------------------------------
+# Mood vocabulary (reserved for future model-based classification).
+# These canonical moods map raw Last.fm tag substrings to a normalised label;
+# they are kept here as a reference so a trained classifier can produce them.
+# MOOD_TAGS: dict[str, list[str]] = {
+#     "melancholic": ["sad", "melancholic", "melancholy", "depressing", "somber"],
+#     "chill": ["chill", "mellow", "relaxing", "calm", "laid-back", "smooth"],
+#     "energetic": ["energetic", "upbeat", "hype", "banger", "intense", "driving"],
+#     "euphoric": ["euphoric", "uplifting", "happy", "feel good", "joyful"],
+#     "dark": ["dark", "moody", "brooding", "haunting", "ominous"],
+#     "romantic": ["romantic", "love", "sensual", "sexy"],
+#     "dreamy": ["dreamy", "ethereal", "atmospheric", "ambient", "spacey"],
+#     "aggressive": ["aggressive", "angry", "heavy", "brutal"],
+# }
 
 # Energy banding from Spotify audio-features `energy` (0..1), used when available.
 ENERGY_BANDS = [(0.0, 0.40, "low"), (0.40, 0.70, "mid"), (0.70, 1.01, "high")]
@@ -181,39 +183,46 @@ ENERGY_BANDS = [(0.0, 0.40, "low"), (0.40, 0.70, "mid"), (0.70, 1.01, "high")]
 ENERGY_LEVELS = [name for _lo, _hi, name in ENERGY_BANDS]
 
 # Activity/context rules. Each rule fires if ANY of its trigger sets match.
-# Evaluated against: energy_band, genre buckets, moods.
+# Evaluated against: energy_band and genre buckets.
 # Format: vibe_label -> list of conditions; a condition is a dict that ALL
-# of its keys must satisfy (energy: exact band; genres/moods: intersection non-empty).
+# of its keys must satisfy (energy: exact band; genres: intersection non-empty).
 VIBE_RULES: dict[str, list[dict]] = {
+    # Metal/Rock fire on high energy alone; other intense genres require it too.
     "Workout": [
-        {"energy": "high", "genres": ["Electronic", "Hip-hop/Rap", "Metal", "Rock"]},
-        {"moods": ["energetic", "aggressive"]},
+        {"energy": "high", "genres": ["Metal", "Rock"]},
+        {"energy": "high", "genres": ["Electronic", "Hip-hop/Rap", "Latin"]},
     ],
+    # Dance-floor genres at high energy; Pop/Latin also party at mid.
     "Party": [
         {"energy": "high", "genres": ["Electronic", "Pop", "Latin", "Hip-hop/Rap"]},
-        {"moods": ["euphoric"], "energy": "high"},
+        {"energy": "mid", "genres": ["Pop", "Latin"]},
     ],
+    # Ambient/Lo-fi is study-safe at any energy; other cerebral genres at low-mid.
     "Focus/Study": [
-        {"energy": "low", "genres": ["Ambient/Lo-fi", "Classical", "Jazz"]},
         {"genres": ["Ambient/Lo-fi"]},
+        {"energy": "low", "genres": ["Classical", "Jazz", "Folk/Acoustic"]},
+        {"energy": "mid", "genres": ["Classical", "Jazz"]},
     ],
+    # Low energy + nocturnal genres (slow rap, ambient electronic, jazz, R&B).
     "Late-night": [
-        {"energy": "low", "moods": ["dark", "melancholic", "dreamy"]},
-        {"genres": ["R&B/Soul"], "moods": ["romantic", "chill"]},
+        {"energy": "low", "genres": ["R&B/Soul", "Jazz", "Electronic", "Hip-hop/Rap"]},
     ],
+    # Reggae is always chill; Folk/R&B at low or mid.
     "Chill": [
-        {"moods": ["chill", "dreamy"]},
+        {"genres": ["Reggae/Dub"]},
         {"energy": "low", "genres": ["Folk/Acoustic", "R&B/Soul"]},
+        {"energy": "mid", "genres": ["Folk/Acoustic", "R&B/Soul"]},
     ],
+    # Upbeat genres at mid-high energy.
     "Feel-good": [
-        {"moods": ["euphoric", "romantic"]},
+        {"energy": "high", "genres": ["Pop", "Latin", "Reggae/Dub"]},
+        {"energy": "mid", "genres": ["Pop", "Latin"]},
     ],
 }
 DEFAULT_VIBE = "Unsorted"
 
 # --- Genre-based fallback --------------------------------------------------
-# When audio-features are unavailable AND Last.fm tags carry no mood signal
-# (common for e.g. rap/hip-hop libraries), classification falls back to these
+# When audio-features are unavailable, classification falls back to these
 # per-bucket defaults so energy and vibes are never empty. Coarse by design;
 # the optional LLM pass (cli.py llm) refines these per-track.
 GENRE_ENERGY: dict[str, str] = {

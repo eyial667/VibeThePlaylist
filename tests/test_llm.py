@@ -30,7 +30,7 @@ def test_refine_writes_llm_labels_including_genre(temp_db, monkeypatch):
         # one result per input track; assert we were handed candidate genres + tags
         assert tracks[0]["genres"] == ["Hip-hop/Rap"]
         return [{"id": t["id"], "genres": ["Hip-hop/Rap"], "energy": "high",
-                 "moods": ["aggressive"], "vibes": ["Workout", "Party"]} for t in tracks]
+                 "vibes": ["Workout", "Party"]} for t in tracks]
 
     monkeypatch.setattr(llm, "classify_batch", fake_batch)
     n = llm.refine()
@@ -39,7 +39,6 @@ def test_refine_writes_llm_labels_including_genre(temp_db, monkeypatch):
         row = conn.execute("SELECT * FROM labels WHERE track_id='r1'").fetchone()
     assert row["method"] == "llm"
     assert row["energy_band"] == "high"
-    assert json.loads(row["moods"]) == ["aggressive"]
     assert json.loads(row["genre_buckets"]) == ["Hip-hop/Rap"]  # LLM-assigned genre
 
 
@@ -60,7 +59,7 @@ def test_refine_is_cached_and_force_redoes(temp_db, monkeypatch):
     def fake_batch(tracks):
         calls["n"] += 1
         return [{"id": t["id"], "genres": ["Hip-hop/Rap"], "energy": "mid",
-                 "moods": [], "vibes": ["Chill"]} for t in tracks]
+                 "vibes": ["Chill"]} for t in tracks]
 
     monkeypatch.setattr(llm, "classify_batch", fake_batch)
     assert llm.refine() == 1            # first pass refines
@@ -78,7 +77,7 @@ def test_refine_batches_respect_size(temp_db, monkeypatch):
     def fake_batch(tracks):
         batch_sizes.append(len(tracks))
         return [{"id": t["id"], "genres": ["Hip-hop/Rap"], "energy": "high",
-                 "moods": [], "vibes": ["Workout"]} for t in tracks]
+                 "vibes": ["Workout"]} for t in tracks]
 
     monkeypatch.setattr(llm, "classify_batch", fake_batch)
     total = llm.refine()

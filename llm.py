@@ -1,10 +1,9 @@
-"""Optional Claude refinement of mood / energy / vibe.
+"""Optional Claude refinement of energy / vibe.
 
 The free pass (classify.py) guarantees coverage via genre fallback, but it's
 coarse — every track in a genre gets similar energy/vibe. This pass uses Claude
-to refine per-track, which matters most for libraries where Last.fm tags carry no
-mood signal (e.g. rap/hip-hop). Batched + cached so a few thousand tracks cost
-cents: results are written with method='llm' and not re-requested on later runs.
+to refine per-track. Batched + cached so a few thousand tracks cost cents:
+results are written with method='llm' and not re-requested on later runs.
 
     python cli.py llm            # refine tracks not yet LLM-classified
     python cli.py llm --force    # re-refine everything
@@ -21,8 +20,8 @@ import text_utils
 MODEL = "claude-haiku-4-5-20251001"  # cheap + fast; fine for tagging
 
 _SYSTEM = (
-    "You are a music tagging assistant. For each track you assign an energy level, "
-    "moods, and activity/vibe tags. Be consistent and terse, and always answer for "
+    "You are a music tagging assistant. For each track you assign an energy level "
+    "and activity/vibe tags. Be consistent and terse, and always answer for "
     "every track even when unsure."
 )
 
@@ -69,7 +68,7 @@ def _sanitize_subgenres(raw, genres: list[str]) -> list[str]:
 
 def classify_batch(tracks: list[dict]) -> list[dict]:
     """tracks: [{id, name, artist_name, genres:[...], tags:[...]}]
-    -> [{id, genres:[...], energy, moods:[], vibes:[]}].
+    -> [{id, genres:[...], energy, vibes:[]}].
 
     The LLM also picks the genre bucket(s): one by default, a second ONLY for a
     genuine strong blend (never more than `config.LLM_MAX_GENRES`). Output genres
@@ -98,11 +97,10 @@ def classify_batch(tracks: list[dict]) -> list[dict]:
         f"the list for the bucket(s) you picked: {config.SUBGENRE_BUCKETS}. Leave empty if "
         "none clearly fit — do not guess.\n"
         f"- energy: exactly one of {['low', 'mid', 'high']}\n"
-        f"- moods: zero or more of {list(config.MOOD_TAGS.keys())}\n"
         f"- vibes: one or more of {list(config.VIBE_RULES.keys())}\n\n"
         "Return ONLY a JSON array, one object per track, with keys: "
         "index (1-based int), genres (array of 1-2 strings), subgenres (array), "
-        "energy (string), moods (array), vibes (array). No prose, no markdown.\n\n"
+        "energy (string), vibes (array). No prose, no markdown.\n\n"
         f"{listing}"
     )
     msg = client.messages.create(
@@ -123,7 +121,6 @@ def classify_batch(tracks: list[dict]) -> list[dict]:
                 "genres": genres,
                 "subgenres": _sanitize_subgenres(obj.get("subgenres"), genres),
                 "energy": obj.get("energy"),
-                "moods": obj.get("moods", []) or [],
                 "vibes": obj.get("vibes", []) or [],
             })
     return out
@@ -154,7 +151,7 @@ def refine(force: bool = False, progress=None) -> int:
     """Run the batched LLM pass over tracks that need it. Returns count refined.
 
     `progress` is an optional callable(done, total) for CLI progress reporting.
-    Energy/moods/vibes come from the LLM; the existing genre bucket is preserved.
+    Energy/vibes come from the LLM; the existing genre bucket is preserved.
     """
     targets = _targets(force)
     if not targets:
@@ -172,7 +169,6 @@ def refine(force: bool = False, progress=None) -> int:
                 "genre_buckets": json.dumps(r["genres"]),  # LLM-refined, max 2
                 "subgenres": json.dumps(r.get("subgenres", [])),
                 "energy_band": r["energy"],
-                "moods": json.dumps(r["moods"]),
                 "vibes": json.dumps(r["vibes"]),
                 "method": "llm",
                 "classified_at": now,

@@ -1,7 +1,7 @@
 """Turn raw signals (Spotify genres, Last.fm tags, audio features) into labels.
 
 Pure functions over data already cached in the DB. Transparent + tunable via
-config.GENRE_BUCKETS / MOOD_TAGS / ENERGY_BANDS / VIBE_RULES.
+config.GENRE_BUCKETS / ENERGY_BANDS / VIBE_RULES.
 """
 from __future__ import annotations
 
@@ -75,32 +75,17 @@ def _match_subgenres(raw_genres: list[str], tags: list[str], genres: list[str]) 
     return ordered[: config.MAX_SUBGENRES]
 
 
-def _match_moods(tags: list[str]) -> list[str]:
-    hay = " | ".join(tags)
-    return [
-        mood
-        for mood, needles in config.MOOD_TAGS.items()
-        if any(n in hay for n in needles)
-    ]
-
-
-def _energy_band(energy: float | None, tags: list[str], moods: list[str],
-                 genres: list[str]) -> str | None:
+def _energy_band(energy: float | None, tags: list[str], genres: list[str]) -> str | None:
     if energy is not None:
         for lo, hi, name in config.ENERGY_BANDS:
             if lo <= energy < hi:
                 return name
-    # Fallback 1: infer from mood tags (when present).
-    if {"energetic", "aggressive"} & set(moods):
-        return "high"
-    if {"chill", "melancholic", "dreamy"} & set(moods):
-        return "low"
-    # Fallback 2: sub-genre tag hints (e.g. "cloud rap" -> mid, "drill" -> high).
+    # Fallback 1: sub-genre tag hints (e.g. "cloud rap" -> mid, "drill" -> high).
     hay = " | ".join(tags)
     for needle, band in config.SUBGENRE_ENERGY_HINTS:
         if needle in hay:
             return band
-    # Fallback 3: per-bucket default so energy is never empty for a known genre.
+    # Fallback 2: per-bucket default so energy is never empty for a known genre.
     for g in genres:
         if g in config.GENRE_ENERGY:
             return config.GENRE_ENERGY[g]
@@ -122,8 +107,8 @@ def _genre_fallback_vibes(genres: list[str]) -> list[str]:
     return deduped if config.MULTI_LABEL else deduped[:1]
 
 
-def _match_vibes(energy_band: str | None, genres: list[str], moods: list[str]) -> list[str]:
-    gset, mset = set(genres), set(moods)
+def _match_vibes(energy_band: str | None, genres: list[str]) -> list[str]:
+    gset = set(genres)
     fired: list[str] = []
     for vibe, conditions in config.VIBE_RULES.items():
         for cond in conditions:
@@ -132,13 +117,10 @@ def _match_vibes(energy_band: str | None, genres: list[str], moods: list[str]) -
                 ok = False
             if "genres" in cond and not (set(cond["genres"]) & gset):
                 ok = False
-            if "moods" in cond and not (set(cond["moods"]) & mset):
-                ok = False
             if ok:
                 fired.append(vibe)
                 break
     if not fired:
-        # Rules produced nothing (no mood/energy signal) -> use genre fallback.
         return _genre_fallback_vibes(genres)
     return fired if config.MULTI_LABEL else fired[:1]
 
@@ -181,16 +163,14 @@ def classify_all(overwrite_llm: bool = False) -> int:
         tags = tags_by_track.get(tid, [])
         genres = _match_buckets_agreed(raw_genres, tags)
         subgenres = _match_subgenres(raw_genres, tags, genres)
-        moods = _match_moods(tags)
-        band = _energy_band(features.get(tid), tags, moods, genres)
-        vibes = _match_vibes(band, genres, moods)
+        band = _energy_band(features.get(tid), tags, genres)
+        vibes = _match_vibes(band, genres)
 
         rows.append({
             "track_id": tid,
             "genre_buckets": json.dumps(genres),
             "subgenres": json.dumps(subgenres),
             "energy_band": band,
-            "moods": json.dumps(moods),
             "vibes": json.dumps(vibes),
             "method": "rules",
             "classified_at": now,

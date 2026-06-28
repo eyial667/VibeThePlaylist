@@ -1,6 +1,6 @@
 """Desktop GUI for browsing your classified library.
 
-Shows every possible genre, vibe, energy band, and mood (straight from config.py),
+Shows every possible genre, vibe, and energy band (straight from config.py),
 plus searchable scrollable lists of artists and albums (which cross-filter each
 other). Tick an option's checkbox to select it. Each section has an INCLUDE /
 EXCLUDE button below it: in INCLUDE mode the section's ticked options are required,
@@ -30,7 +30,6 @@ GENRES = list(config.GENRE_BUCKETS.keys()) + [config.DEFAULT_GENRE]
 SUBGENRES = [sg for subs in config.SUBGENRE_BUCKETS.values() for sg in subs]
 VIBES = list(config.VIBE_RULES.keys()) + [config.DEFAULT_VIBE]
 ENERGIES = [band[2] for band in config.ENERGY_BANDS]  # low / mid / high
-MOODS = list(config.MOOD_TAGS.keys())
 
 
 def load_rows() -> list[dict]:
@@ -40,7 +39,7 @@ def load_rows() -> list[dict]:
         with db.connect() as conn:
             rows = conn.execute(
                 "SELECT t.id, t.artist_name, t.name, t.album, l.genre_buckets, "
-                "l.subgenres, l.energy_band, l.moods, l.vibes "
+                "l.subgenres, l.energy_band, l.vibes "
                 "FROM labels l JOIN tracks t ON t.id = l.track_id"
             ).fetchall()
     except Exception:
@@ -55,7 +54,6 @@ def load_rows() -> list[dict]:
             "genres": json.loads(r["genre_buckets"] or "[]"),
             "subgenres": json.loads(r["subgenres"] or "[]"),
             "energy": r["energy_band"],
-            "moods": json.loads(r["moods"] or "[]"),
             "vibes": json.loads(r["vibes"] or "[]"),
         })
     return out
@@ -130,10 +128,10 @@ def _make_mode_button(parent, sel, on_flip):
 
 
 def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
-    """Pure filter test. `inc`/`exc` map category keys (g,v,e,m,ar,al) to sets of
+    """Pure filter test. `inc`/`exc` map category keys (g,sg,v,e,ar,al) to sets of
     included/excluded values. Excludes are hard (any hit removes the row);
     includes combine via any_mode (Any=OR) or all (AND). In AND mode, multi-value
-    categories (genres, subgenres, vibes, moods) require ALL selected values to be
+    categories (genres, subgenres, vibes) require ALL selected values to be
     present on the track, not just one."""
     if exc["g"] & set(row["genres"]):
         return False
@@ -142,8 +140,6 @@ def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
     if exc["v"] & set(row["vibes"]):
         return False
     if row["energy"] in exc["e"]:
-        return False
-    if exc["m"] & set(row["moods"]):
         return False
     if row["artist"] in exc["ar"]:
         return False
@@ -159,8 +155,6 @@ def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
             checks.append(bool(inc["v"] & set(row["vibes"])))
         if inc["e"]:
             checks.append(row["energy"] in inc["e"])
-        if inc["m"]:
-            checks.append(bool(inc["m"] & set(row["moods"])))
         if inc["ar"]:
             checks.append(row["artist"] in inc["ar"])
         if inc["al"]:
@@ -177,8 +171,6 @@ def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
             checks.append(inc["v"] <= set(row["vibes"]))
         if inc["e"]:
             checks.append(row["energy"] in inc["e"])
-        if inc["m"]:
-            checks.append(inc["m"] <= set(row["moods"]))
         if inc["ar"]:
             checks.append(row["artist"] in inc["ar"])
         if inc["al"]:
@@ -387,8 +379,6 @@ class App(ttk.Frame):
         right.pack(side="left", fill="y", padx=8)
         self.energy_group = CheckGroup(right, "Energy", ENERGIES, self.refresh)
         self.energy_group.pack(fill="x")
-        self.mood_group = CheckGroup(right, "Moods", MOODS, self.refresh)
-        self.mood_group.pack(fill="x", pady=(8, 0))
 
         artists = sorted({r["artist"] for r in self.rows if r["artist"]})
         albums = sorted({r["album"] for r in self.rows if r["album"]})
@@ -455,8 +445,7 @@ class App(ttk.Frame):
     # --- filtering ---------------------------------------------------------
     def clear_all(self) -> None:
         for group in (self.genre_group, self.subgenre_group, self.vibe_group,
-                      self.energy_group, self.mood_group, self.artist_group,
-                      self.album_group):
+                      self.energy_group, self.artist_group, self.album_group):
             group.reset()
         self.refresh()
 
@@ -467,13 +456,13 @@ class App(ttk.Frame):
         inc = {
             "g": self.genre_group.included(), "sg": self.subgenre_group.included(),
             "v": self.vibe_group.included(),
-            "e": self.energy_group.included(), "m": self.mood_group.included(),
+            "e": self.energy_group.included(),
             "ar": self.artist_group.included(), "al": self.album_group.included(),
         }
         exc = {
             "g": self.genre_group.excluded(), "sg": self.subgenre_group.excluded(),
             "v": self.vibe_group.excluded(),
-            "e": self.energy_group.excluded(), "m": self.mood_group.excluded(),
+            "e": self.energy_group.excluded(),
             "ar": self.artist_group.excluded(), "al": self.album_group.excluded(),
         }
 
@@ -546,7 +535,7 @@ class App(ttk.Frame):
 
     def _suggest_name(self) -> str:
         parts = (list(self.vibe_group.included()) + list(self.genre_group.included())
-                 + list(self.energy_group.included()) + list(self.mood_group.included()))
+                 + list(self.energy_group.included()))
         return " ".join(parts) if parts else "Filtered"
 
     def create_playlist(self) -> None:
