@@ -879,9 +879,7 @@ class LibraryWidget(QWidget):
         self.genre_panel    = FilterPanel("Genres",    GENRES,    parent=g)
         self.subgenre_panel = FilterPanel("Subgenres", SUBGENRES,
                                           searchable=True, parent=g)
-        self.energy_panel   = FilterPanel("Energy",    ENERGIES,  parent=g)
-        self.energy_panel.setMaximumWidth(130)
-        for p in (self.genre_panel, self.subgenre_panel, self.energy_panel):
+        for p in (self.genre_panel, self.subgenre_panel):
             g_layout.addWidget(p)
             p.changed.connect(self.refresh)
         tabs.addTab(g, "Genre")
@@ -890,9 +888,13 @@ class LibraryWidget(QWidget):
         v = QWidget()
         v_layout = QHBoxLayout(v)
         v_layout.setContentsMargins(12, 8, 12, 8)
-        self.vibe_panel = FilterPanel("Vibes", VIBES, parent=v)
-        v_layout.addWidget(self.vibe_panel)
-        self.vibe_panel.changed.connect(self.refresh)
+        v_layout.setSpacing(16)
+        self.vibe_panel   = FilterPanel("Vibes",  VIBES,    parent=v)
+        self.energy_panel = FilterPanel("Energy", ENERGIES, parent=v)
+        self.energy_panel.setMaximumWidth(130)
+        for p in (self.vibe_panel, self.energy_panel):
+            v_layout.addWidget(p)
+            p.changed.connect(self.refresh)
         tabs.addTab(v, "Vibe")
 
         # Tab 3 — Artists
