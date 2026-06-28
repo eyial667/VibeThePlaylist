@@ -13,17 +13,56 @@ import threading
 import time
 import urllib.request
 
-from PyQt6.QtCore import (
-    Qt, QThread, QTimer, QAbstractTableModel, QModelIndex, pyqtSignal,
-)
-from PyQt6.QtGui import QColor, QFont
-from PyQt6.QtWidgets import (
-    QAbstractItemView, QApplication, QDialog, QFrame, QGroupBox,
-    QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-    QProgressBar, QPushButton, QStackedWidget,
-    QTabWidget, QTableView, QVBoxLayout, QWidget,
-)
+try:
+    from PyQt6.QtCore import (
+        Qt, QThread, QTimer, QAbstractTableModel, QModelIndex, pyqtSignal,
+    )
+    from PyQt6.QtGui import QColor, QFont
+    from PyQt6.QtWidgets import (
+        QAbstractItemView, QApplication, QDialog, QFrame, QGroupBox,
+        QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
+        QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
+        QProgressBar, QPushButton, QStackedWidget,
+        QTabWidget, QTableView, QVBoxLayout, QWidget,
+    )
+    _PYQT6_AVAILABLE = True
+except (ImportError, OSError):
+    # PyQt6 / a display is unavailable (e.g. headless CI).  Provide stub base
+    # classes so the module body can be imported and the pure data/logic layer
+    # (GENRES, load_rows, Selection, row_matches) remains accessible.
+    _PYQT6_AVAILABLE = False
+
+    class _Stub:                          # type: ignore[misc]
+        """No-op base for Qt widget/model subclasses in headless environments."""
+        def __init__(self, *a, **kw): pass
+        def __init_subclass__(cls, **kw): pass
+
+    def pyqtSignal(*a, **kw):            # type: ignore[misc]
+        return None
+
+    class _QtNS:
+        """Namespace stub: returns *itself* for any attribute access so that
+        chained lookups like ``Qt.ItemDataRole.DisplayRole`` evaluate to a
+        sentinel object rather than raising AttributeError."""
+        def __getattr__(self, name: str) -> "_QtNS":
+            return self
+        def __or__(self, other: object) -> object:
+            return self
+        def __ror__(self, other: object) -> object:
+            return self
+        def __int__(self) -> int:
+            return 0
+
+    class Qt:                            # type: ignore[misc]
+        ItemDataRole = ItemFlag = CheckState = AlignmentFlag = _QtNS()
+
+    QThread = QTimer = QAbstractTableModel = QModelIndex = _Stub  # type: ignore[misc,assignment]
+    QColor = QFont = _Stub                                         # type: ignore[misc,assignment]
+    (QAbstractItemView, QApplication, QDialog, QFrame, QGroupBox,
+     QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
+     QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
+     QProgressBar, QPushButton, QStackedWidget, QTabWidget,
+     QTableView, QVBoxLayout, QWidget) = (_Stub,) * 21             # type: ignore[misc,assignment]
 
 import config
 import db
