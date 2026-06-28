@@ -76,7 +76,7 @@ class RuntimePaths:
 
 
 def _sanitize_runtime_scope(scope: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", scope.strip()).strip("._-")
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", scope.strip()).strip("._-")
     if not cleaned:
         raise ValueError("Runtime scope must contain at least one filesystem-safe character.")
     return cleaned
@@ -84,12 +84,12 @@ def _sanitize_runtime_scope(scope: str) -> str:
 
 def _scoped_path(path: Path, scope_dir: Path, *, base_data_dir: Path, is_dir: bool) -> Path:
     try:
-        rel = path.relative_to(base_data_dir)
+        relative_path = path.relative_to(base_data_dir)
     except ValueError:
         if is_dir:
             return path / "users" / scope_dir.name
         return path.parent / "users" / scope_dir.name / path.name
-    return scope_dir / rel
+    return scope_dir / relative_path
 
 
 def _ensure_runtime_dirs(paths: RuntimePaths) -> RuntimePaths:

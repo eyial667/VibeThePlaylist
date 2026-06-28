@@ -1,5 +1,4 @@
 import importlib
-from types import SimpleNamespace
 
 import pytest
 
@@ -12,11 +11,14 @@ def _restore_config():
     importlib.reload(config)
 
 
-def _verify_parent_dirs_writable(module) -> None:
+def _verify_parent_dirs_writable(subject) -> None:
+    db_path = getattr(subject, "DB_PATH", None) or getattr(subject, "db_path")
+    token_cache_path = getattr(subject, "TOKEN_CACHE_PATH", None) or getattr(subject, "token_cache_path")
+    preview_cache_path = getattr(subject, "PREVIEW_CACHE_PATH", None) or getattr(subject, "preview_cache_path")
     for parent, name in (
-        (module.DB_PATH.parent, "db-parent.txt"),
-        (module.TOKEN_CACHE_PATH.parent, "token-parent.txt"),
-        (module.PREVIEW_CACHE_PATH.parent, "preview-parent.txt"),
+        (db_path.parent, "db-parent.txt"),
+        (token_cache_path.parent, "token-parent.txt"),
+        (preview_cache_path.parent, "preview-parent.txt"),
     ):
         marker = parent / name
         marker.write_text("ok", encoding="utf-8")
@@ -89,11 +91,7 @@ def test_runtime_paths_for_scope_stays_under_data_dir(monkeypatch, tmp_path):
     assert paths.token_cache_path == paths.data_dir / ".spotify_token_cache"
     assert paths.preview_cache_path == paths.data_dir / "cache" / "preview.mp3"
     _verify_parent_dirs_writable(module)
-    _verify_parent_dirs_writable(SimpleNamespace(
-        DB_PATH=paths.db_path,
-        TOKEN_CACHE_PATH=paths.token_cache_path,
-        PREVIEW_CACHE_PATH=paths.preview_cache_path,
-    ))
+    _verify_parent_dirs_writable(paths)
 
 
 def test_runtime_paths_for_scope_respects_explicit_file_overrides(monkeypatch, tmp_path):
@@ -106,11 +104,11 @@ def test_runtime_paths_for_scope_respects_explicit_file_overrides(monkeypatch, t
     module = importlib.reload(config)
     paths = module.runtime_paths_for_scope("alice@example.com")
 
-    assert paths.data_dir == tmp_path / "data" / "users" / "alice_example.com"
-    assert paths.cache_dir == tmp_path / "cache" / "users" / "alice_example.com"
-    assert paths.db_path == tmp_path / "state" / "users" / "alice_example.com" / "library.sqlite3"
-    assert paths.token_cache_path == tmp_path / "secrets" / "users" / "alice_example.com" / "spotify.token"
-    assert paths.preview_cache_path == tmp_path / "media" / "users" / "alice_example.com" / "preview.mp3"
+    assert paths.data_dir == tmp_path / "data" / "users" / "alice_example_com"
+    assert paths.cache_dir == tmp_path / "cache" / "users" / "alice_example_com"
+    assert paths.db_path == tmp_path / "state" / "users" / "alice_example_com" / "library.sqlite3"
+    assert paths.token_cache_path == tmp_path / "secrets" / "users" / "alice_example_com" / "spotify.token"
+    assert paths.preview_cache_path == tmp_path / "media" / "users" / "alice_example_com" / "preview.mp3"
 
 
 def test_using_runtime_scope_swaps_paths_temporarily(monkeypatch, tmp_path):
