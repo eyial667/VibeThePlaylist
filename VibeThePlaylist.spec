@@ -21,6 +21,14 @@ hiddenimports = [
     "clients.spotify_client",
 ]
 
+# Bundle the optional `local_settings.py` (shared app credentials, e.g. the
+# Spotify client ID) into the build when it is present, so the frozen app can
+# read credentials without shipping a `.env`. PyInstaller skips `.env` and does
+# not load it in a frozen app, so credentials must come from here or the
+# environment. Absent file => normal build that relies on env vars at runtime.
+if (ROOT / "local_settings.py").exists():
+    hiddenimports.append("local_settings")
+
 a = Analysis(
     ["gui.py"],
     pathex=[str(ROOT)],
