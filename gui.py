@@ -456,6 +456,16 @@ class App(ttk.Frame):
             "ar": self.artist_group.excluded(), "al": self.album_group.excluded(),
         }
 
+        # cross-filter subgenres by ticked genres (regardless of include/exclude mode)
+        ticked_genres = self.genre_group.sel.selected
+        if ticked_genres:
+            allowed_subgenres = set().union(
+                *(config.SUBGENRE_BUCKETS.get(g, []) for g in ticked_genres)
+            )
+        else:
+            allowed_subgenres = set()  # hide all subgenres until a genre is chosen
+        self.subgenre_group.set_allowed(allowed_subgenres)
+
         # cross-filter the panels by INCLUDED selections only (excludes don't narrow):
         # albums limited to included artists' albums, artists to included albums' artists
         allowed_albums = set().union(*(self.artist_albums.get(a, set()) for a in inc["ar"])) \
