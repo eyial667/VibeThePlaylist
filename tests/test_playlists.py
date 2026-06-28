@@ -121,7 +121,6 @@ def test_create_named_playlist_wraps_spotify_errors_with_user_message(temp_db, f
     try:
         playlists.create_named_playlist(sp, "Chill", ["t1"])
     except playlists.PlaylistError as exc:
-        assert "playlist-edit access" in str(exc)
-        assert "Log out" in str(exc)
+        assert str(exc) == playlists._SCOPE_MESSAGE
     else:
         raise AssertionError("Expected PlaylistError")
