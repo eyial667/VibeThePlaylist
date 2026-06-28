@@ -64,7 +64,8 @@ def load_rows() -> list[dict]:
 # --- selection model: each option is simply on (✓) or off; the whole section
 # is interpreted as INCLUDE or EXCLUDE depending on its mode button ------------
 INCLUDE, EXCLUDE = "include", "exclude"
-_MODE_FG = {INCLUDE: "#1a7f37", EXCLUDE: "#cf222e"}  # green / red
+_MODE_LABEL = {INCLUDE: "Showing", EXCLUDE: "Hiding"}
+_MODE_FG    = {INCLUDE: "#1a7f37", EXCLUDE: "#cf222e"}
 
 
 class Selection:
@@ -115,13 +116,13 @@ def _make_check(parent, option, sel, on_change, label=None):
 
 
 def _make_mode_button(parent, sel, on_flip):
-    """The INCLUDE / EXCLUDE toggle shown below each section. Returns
-    (button, sync) where sync() refreshes its label/colour from `sel.mode`."""
-    btn = tk.Button(parent, width=9, takefocus=0)
+    """Toggle between Showing (include) and Hiding (exclude) mode."""
+    btn = tk.Button(parent, width=10, font=("TkDefaultFont", 9), takefocus=0,
+                    relief="groove", bd=1)
 
     def sync():
         colour = _MODE_FG[sel.mode]
-        btn.config(text=sel.mode.upper(), fg="white", bg=colour,
+        btn.config(text=_MODE_LABEL[sel.mode], fg="white", bg=colour,
                    activebackground=colour, activeforeground="white")
 
     btn.config(command=on_flip)
@@ -208,7 +209,7 @@ class CheckGroup(ttk.LabelFrame):
         bar.pack(anchor="w", fill="x", pady=(6, 0))
         self.mode_btn, self._sync_mode = _make_mode_button(bar, self.sel, self.flip_mode)
         self.mode_btn.pack(side="left")
-        ttk.Button(bar, text="None", width=6, command=self.clear).pack(side="left", padx=(4, 0))
+        ttk.Button(bar, text="Clear", width=6, command=self.clear).pack(side="left", padx=(4, 0))
 
     def flip_mode(self) -> None:
         self.sel.flip_mode()
@@ -249,7 +250,12 @@ class CheckListGroup(ttk.LabelFrame):
         self.allowed: set[str] | None = None  # cross-filter restriction (None = all)
 
         self.search_var = tk.StringVar()
-        ttk.Entry(self, textvariable=self.search_var, width=width).pack(fill="x")
+        self._search_entry = ttk.Entry(self, textvariable=self.search_var,
+                                       width=width, foreground="gray")
+        self._search_entry.insert(0, "Search…")
+        self._search_entry.pack(fill="x")
+        self._search_entry.bind("<FocusIn>",  self._entry_focus_in)
+        self._search_entry.bind("<FocusOut>", self._entry_focus_out)
         self.search_var.trace_add("write", lambda *_: self._render())
 
         bar = ttk.Frame(self)
@@ -280,6 +286,16 @@ class CheckListGroup(ttk.LabelFrame):
 
         self._render()
 
+    def _entry_focus_in(self, _e=None) -> None:
+        if self._search_entry.cget("foreground") == "gray":
+            self._search_entry.delete(0, "end")
+            self._search_entry.config(foreground="")
+
+    def _entry_focus_out(self, _e=None) -> None:
+        if not self.search_var.get():
+            self._search_entry.config(foreground="gray")
+            self._search_entry.insert(0, "Search…")
+
     def _bind_wheel(self) -> None:
         self.canvas.bind_all("<MouseWheel>", self._on_wheel)   # Windows / macOS
         self.canvas.bind_all("<Button-4>", self._on_wheel)     # Linux scroll up
@@ -306,17 +322,21 @@ class CheckListGroup(ttk.LabelFrame):
 
     def _visible(self, o: str, q: str) -> bool:
         active = self.sel.is_on(o)
-        if q and not o.lower().startswith(q):
+        if q and q != "search…" and not o.lower().startswith(q):
             return False
         # cross-filter hides options not allowed — unless already ticked
         if self.allowed is not None and o not in self.allowed and not active:
             return False
         return True
 
+    def _real_query(self) -> str:
+        raw = self.search_var.get().strip()
+        return "" if raw == "Search…" else raw.lower()
+
     def _render(self) -> None:
         for w in self.inner.winfo_children():
             w.destroy()
-        q = self.search_var.get().strip().lower()
+        q = self._real_query()
         matches = [o for o in self.all_options if self._visible(o, q)]
         # ticked options first so they're never hidden by the cap
         matches.sort(key=lambda o: (not self.sel.is_on(o), o.lower()))
@@ -325,7 +345,7 @@ class CheckListGroup(ttk.LabelFrame):
             _make_check(self.inner, o, self.sel, self._on_toggle).pack(anchor="w", fill="x")
         if len(matches) > len(shown):
             ttk.Label(self.inner, foreground="gray",
-                      text=f"… {len(matches) - len(shown)} more — type to narrow").pack(anchor="w")
+                      text=f"Showing {len(shown)} of {len(matches)} — type above to find more").pack(anchor="w", pady=(4, 0))
         self.canvas.yview_moveto(0)
         self._update_count()
 
@@ -412,50 +432,51 @@ class App(ttk.Frame):
         controls = ttk.Frame(self)
         controls.pack(fill="x", pady=(0, 6))
 
-        ttk.Button(controls, text="Clear all filters",
+        ttk.Button(controls, text="Reset filters",
                    command=self.clear_all).pack(side="left")
-        ttk.Button(controls, text="Sync library",
+        ttk.Button(controls, text="Refresh library",
                    command=self._sync).pack(side="left", padx=(8, 0))
-        ttk.Button(controls, text="Log out",
-                   command=self._logout).pack(side="left", padx=(8, 0))
-        self.create_btn = ttk.Button(controls, text="Create playlist…",
+        self.create_btn = ttk.Button(controls, text="Save as Spotify playlist…",
                                      command=self.create_playlist)
         self.create_btn.pack(side="left", padx=(8, 0))
-        self.classify_btn = ttk.Button(controls, text="Classify track…",
-                                       command=self.classify_track)
-        self.classify_btn.pack(side="left", padx=(8, 0))
-        self.classify_lib_btn = ttk.Button(controls, text="Classify library…",
-                                           command=self.classify_library)
-        self.classify_lib_btn.pack(side="left", padx=(8, 0))
-
-        ttk.Label(controls, text="Match:").pack(side="left", padx=(16, 4))
-        self.match_mode = tk.StringVar(value="any")
-        ttk.Radiobutton(controls, text="Any", value="any",
-                        variable=self.match_mode, command=self.refresh).pack(side="left")
-        ttk.Radiobutton(controls, text="All", value="all",
-                        variable=self.match_mode, command=self.refresh).pack(side="left", padx=(4, 0))
+        ttk.Button(controls, text="Log out",
+                   command=self._logout).pack(side="left", padx=(8, 0))
 
         # search box (right-aligned)
-        ttk.Label(controls, text="Search:").pack(side="right", padx=(0, 4))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self.refresh())
-        ttk.Entry(controls, textvariable=self.search_var, width=26).pack(side="right")
+        _search_entry = ttk.Entry(controls, textvariable=self.search_var,
+                                  width=28, foreground="gray")
+        _search_entry.insert(0, "Search songs or artists…")
+        _search_entry.pack(side="right", padx=(8, 0))
+
+        def _sf_in(_e=None):
+            if _search_entry.cget("foreground") == "gray":
+                _search_entry.delete(0, "end")
+                _search_entry.config(foreground="")
+
+        def _sf_out(_e=None):
+            if not self.search_var.get():
+                _search_entry.config(foreground="gray")
+                _search_entry.insert(0, "Search songs or artists…")
+
+        _search_entry.bind("<FocusIn>",  _sf_in)
+        _search_entry.bind("<FocusOut>", _sf_out)
 
         self.count_var = tk.StringVar()
         ttk.Label(controls, textvariable=self.count_var,
-                  font=("TkDefaultFont", 10, "bold")).pack(side="right", padx=(0, 16))
+                  font=("TkDefaultFont", 10, "bold")).pack(side="right", padx=(0, 4))
 
         # --- results table ---
         table_frame = ttk.Frame(self)
         table_frame.pack(fill="both", expand=True)
 
-        cols = ("play", "artist", "title", "album", "genres", "subgenres", "energy", "vibes")
+        cols = ("play", "artist", "title", "album", "genres", "energy", "vibes")
         self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", height=16)
-        widths = {"play": 30, "artist": 150, "title": 200, "album": 160,
-                  "genres": 140, "subgenres": 140, "energy": 55, "vibes": 170}
-        headings = {"play": "▶", "artist": "Artist", "title": "Title", "album": "Album",
-                    "genres": "Genres", "subgenres": "Subgenres", "energy": "Energy",
-                    "vibes": "Vibes"}
+        widths   = {"play": 32, "artist": 180, "title": 240, "album": 190,
+                    "genres": 160, "energy": 80, "vibes": 200}
+        headings = {"play": "▶", "artist": "Artist", "title": "Song", "album": "Album",
+                    "genres": "Genre", "energy": "Energy", "vibes": "Vibe"}
         for c in cols:
             self.tree.heading(c, text=headings[c])
             self.tree.column(c, width=widths[c], anchor="w", stretch=(c != "play"))
@@ -529,7 +550,7 @@ class App(ttk.Frame):
         self.refresh()
 
     def _matches(self, row: dict, inc: dict, exc: dict) -> bool:
-        return row_matches(row, inc, exc, self.match_mode.get() == "any")
+        return row_matches(row, inc, exc, any_mode=True)
 
     def refresh(self) -> None:
         inc = {
@@ -571,21 +592,27 @@ class App(ttk.Frame):
             row for row in self.rows
             if self._matches(row, inc, exc) and self._search_matches(row, q)
         ]
+        _energy_label = {"low": "Low", "mid": "Mid", "high": "High"}
         pid = self._player.playing_id
         for row in self.shown_rows:
-            subgenres = ", ".join(row["subgenres"]) if row["subgenres"] else ", ".join(row["genres"])
             play_marker = "▶" if row["id"] == pid else ("♪" if row.get("preview_url") else "")
             tags = ("playing",) if row["id"] == pid else ()
             iid = self.tree.insert("", "end", tags=tags, values=(
-                play_marker, row["artist"], row["title"], row["album"],
-                ", ".join(row["genres"]), subgenres,
-                row["energy"] or "?", ", ".join(row["vibes"]),
+                play_marker,
+                row["artist"],
+                row["title"],
+                row["album"],
+                ", ".join(row["genres"]) or "—",
+                _energy_label.get(row["energy"] or "", row["energy"] or "—"),
+                ", ".join(row["vibes"]) or "—",
             ))
             self._row_by_iid[iid] = row
-        self.count_var.set(f"{len(self.shown_rows)} / {len(self.rows)} tracks")
+        n, total = len(self.shown_rows), len(self.rows)
+        self.count_var.set(f"{n} song{'s' if n != 1 else ''}" +
+                           (f" of {total}" if n != total else ""))
 
     def _search_matches(self, row: dict, q: str) -> bool:
-        if not q:
+        if not q or q == "search songs or artists…":
             return True
         return q in row["artist"].lower() or q in row["title"].lower()
 
