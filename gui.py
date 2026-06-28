@@ -891,7 +891,6 @@ class LibraryWidget(QWidget):
         v_layout.setSpacing(16)
         self.vibe_panel   = FilterPanel("Vibes",  VIBES,    parent=v)
         self.energy_panel = FilterPanel("Energy", ENERGIES, parent=v)
-        self.energy_panel.setMaximumWidth(130)
         for p in (self.vibe_panel, self.energy_panel):
             v_layout.addWidget(p)
             p.changed.connect(self.refresh)
@@ -923,21 +922,27 @@ class LibraryWidget(QWidget):
         self.count_lbl = QLabel("")
         self.count_lbl.setStyleSheet("font-weight: 600; font-size: 13px; color: #555;")
 
+        self._any_mode = False
+
         self.reset_btn    = QPushButton("Reset filters")
         self.refresh_btn  = QPushButton("Refresh library")
         self.playlist_btn = QPushButton("Save as playlist…")
         self.logout_btn   = QPushButton("Log out")
+        self.match_btn    = QPushButton("Match: AND")
+        self.match_btn.setObjectName("showing")
 
         self.reset_btn.clicked.connect(self._reset_filters)
         self.refresh_btn.clicked.connect(self._sync)
         self.playlist_btn.clicked.connect(self._create_playlist)
         self.logout_btn.clicked.connect(self._logout)
+        self.match_btn.clicked.connect(self._toggle_match_mode)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         btn_row.addWidget(self.reset_btn)
         btn_row.addWidget(self.refresh_btn)
         btn_row.addWidget(self.playlist_btn)
+        btn_row.addWidget(self.match_btn)
         btn_row.addStretch()
         btn_row.addWidget(self.logout_btn)
 
@@ -1018,7 +1023,7 @@ class LibraryWidget(QWidget):
         q = self.search_box.text().strip().lower()
         shown = [
             r for r in self.rows
-            if row_matches(r, inc, exc, any_mode=False)
+            if row_matches(r, inc, exc, any_mode=self._any_mode)
             and (not q or q in r["artist"].lower() or q in r["title"].lower())
         ]
         self.model.update_rows(shown)
@@ -1028,6 +1033,18 @@ class LibraryWidget(QWidget):
             f"{n} song{'s' if n != 1 else ''}"
             + (f" of {total}" if n != total else "")
         )
+
+    def _toggle_match_mode(self) -> None:
+        self._any_mode = not self._any_mode
+        if self._any_mode:
+            self.match_btn.setText("Match: OR")
+            self.match_btn.setObjectName("hiding")
+        else:
+            self.match_btn.setText("Match: AND")
+            self.match_btn.setObjectName("showing")
+        self.match_btn.style().unpolish(self.match_btn)
+        self.match_btn.style().polish(self.match_btn)
+        self.refresh()
 
     def _reset_filters(self) -> None:
         for p in (self.genre_panel, self.subgenre_panel, self.vibe_panel,
