@@ -356,8 +356,8 @@ class App(ttk.Frame):
         self.genre_group = CheckGroup(filters, "Genres", GENRES, self.refresh)
         self.genre_group.pack(side="left", fill="y", padx=(0, 8))
 
-        self.subgenre_group = CheckGroup(filters, "Subgenres", SUBGENRES, self.refresh)
-        self.subgenre_group.pack(side="left", fill="y", padx=8)
+        self.subgenre_group = CheckListGroup(filters, "Subgenres", SUBGENRES, self.refresh)
+        self.subgenre_group.pack(side="left", fill="both", padx=8)
 
         self.vibe_group = CheckGroup(filters, "Vibes", VIBES, self.refresh)
         self.vibe_group.pack(side="left", fill="y", padx=8)
