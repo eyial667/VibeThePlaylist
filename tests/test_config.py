@@ -12,7 +12,7 @@ def _restore_config():
     importlib.reload(config)
 
 
-def _assert_parent_dirs_are_writable(module) -> None:
+def _verify_parent_dirs_writable(module) -> None:
     for parent, name in (
         (module.DB_PATH.parent, "db-parent.txt"),
         (module.TOKEN_CACHE_PATH.parent, "token-parent.txt"),
@@ -43,7 +43,7 @@ def test_data_dir_env_override_updates_runtime_paths(monkeypatch, tmp_path):
     assert module.DB_PATH.parent.exists()
     assert module.TOKEN_CACHE_PATH.parent.exists()
     assert module.PREVIEW_CACHE_PATH.parent.exists()
-    _assert_parent_dirs_are_writable(module)
+    _verify_parent_dirs_writable(module)
 
 
 def test_explicit_runtime_path_overrides_default_paths(monkeypatch, tmp_path):
@@ -68,7 +68,7 @@ def test_explicit_runtime_path_overrides_default_paths(monkeypatch, tmp_path):
     assert module.DB_PATH.parent.exists()
     assert module.TOKEN_CACHE_PATH.parent.exists()
     assert module.PREVIEW_CACHE_PATH.parent.exists()
-    _assert_parent_dirs_are_writable(module)
+    _verify_parent_dirs_writable(module)
 
 
 def test_runtime_paths_for_scope_stays_under_data_dir(monkeypatch, tmp_path):
@@ -88,8 +88,8 @@ def test_runtime_paths_for_scope_stays_under_data_dir(monkeypatch, tmp_path):
     assert paths.db_path == paths.data_dir / "library.db"
     assert paths.token_cache_path == paths.data_dir / ".spotify_token_cache"
     assert paths.preview_cache_path == paths.data_dir / "cache" / "preview.mp3"
-    _assert_parent_dirs_are_writable(module)
-    _assert_parent_dirs_are_writable(SimpleNamespace(
+    _verify_parent_dirs_writable(module)
+    _verify_parent_dirs_writable(SimpleNamespace(
         DB_PATH=paths.db_path,
         TOKEN_CACHE_PATH=paths.token_cache_path,
         PREVIEW_CACHE_PATH=paths.preview_cache_path,
@@ -131,3 +131,11 @@ def test_using_runtime_scope_swaps_paths_temporarily(monkeypatch, tmp_path):
         assert module.PREVIEW_CACHE_PATH == paths.preview_cache_path
 
     assert (module.DATA_DIR, module.CACHE_DIR, module.DB_PATH, module.TOKEN_CACHE_PATH, module.PREVIEW_CACHE_PATH) == original
+
+
+def test_runtime_paths_for_scope_rejects_empty_sanitized_scope(monkeypatch, tmp_path):
+    monkeypatch.setenv("VIBETHEPLAYLIST_DATA_DIR", str(tmp_path / "appdata"))
+    module = importlib.reload(config)
+
+    with pytest.raises(ValueError, match="Runtime scope must contain"):
+        module.runtime_paths_for_scope("///")
