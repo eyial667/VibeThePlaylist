@@ -47,7 +47,9 @@ def seeded_db(temp_db):
          "tempo": 80, "available": 1},
     ])
     db.upsert_tags([
+        {"track_id": "t1", "tag": "electronic", "source": "lastfm", "weight": 100},
         {"track_id": "t1", "tag": "energetic", "source": "lastfm", "weight": 90},
+        {"track_id": "t2", "tag": "folk", "source": "lastfm", "weight": 100},
         {"track_id": "t2", "tag": "mellow", "source": "lastfm", "weight": 70},
         {"track_id": "t2", "tag": "melancholic", "source": "lastfm", "weight": 60},
     ])

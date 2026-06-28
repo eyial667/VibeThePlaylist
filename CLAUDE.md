@@ -28,6 +28,7 @@ python cli.py all                 # fetch -> enrich -> classify (full pipeline)
 python cli.py fetch               # pull Liked Songs into data/library.db
 python cli.py enrich              # artist genres + Last.fm tags + audio-features (runs capability probe)
 python cli.py classify            # re-apply config.py rules -> labels (fast, no network)
+python cli.py gen-subgenres       # research subgenres for new genres (Claude + web search)
 python cli.py query --vibe Chill --genre Jazz --energy low
 python cli.py playlists --dry-run # preview clusters, writes nothing
 python cli.py playlists           # create/update Spotify playlists (idempotent)
@@ -57,10 +58,16 @@ fetch (spotify_client) -> enrich (spotify_client + enrich) -> classify -> {query
 ```
 
 - **`config.py`** is the control surface and the most-edited file. `GENRE_BUCKETS`,
-  `MOOD_TAGS`, `ENERGY_BANDS`, and `VIBE_RULES` define the entire classification
-  taxonomy; everything else (CLI, GUI) derives its option lists from these dicts, so
-  editing config is how you retune results — no code changes needed. Also holds toggles
-  (`PLAYLIST_SCHEMES`, `MULTI_LABEL`, `USE_LLM`, prefixes) and loads `.env`.
+  `SUBGENRE_BUCKETS`, `MOOD_TAGS`, `ENERGY_BANDS`, and `VIBE_RULES` define the entire
+  classification taxonomy; everything else (CLI, GUI) derives its option lists from these
+  dicts, so editing config is how you retune results — no code changes needed.
+  `SUBGENRE_BUCKETS` nests precise subgenres under each coarse bucket (capped by
+  `MAX_SUBGENRES`); a subgenre only applies when its parent bucket matched, and consumers
+  fall back to the coarse genre when none does. It is the hand-curated
+  `_SUBGENRE_BUCKETS_BASE` merged (via `_merge_subgenres`, base wins) with the
+  auto-generated overlay in `subgenres_generated.py`. Also holds toggles (`PLAYLIST_SCHEMES`
+  — `vibe`/`genre`/`subgenre`/`combined`, `MULTI_LABEL`, `USE_LLM`, prefixes) and
+  loads `.env`.
 
 - **`db.py`** is the cache and source of truth across runs. Tables: `tracks`, `artists`,
   `features`, `tags`, `labels`, `meta`. The incremental design depends on the
@@ -70,9 +77,11 @@ fetch (spotify_client) -> enrich (spotify_client + enrich) -> classify -> {query
 
 - **`classify.py`** is a pure rules engine over cached signals (no network). Genre =
   substring match of a track's combined Spotify genres + Last.fm tags against
-  `GENRE_BUCKETS`. Energy = `audio-features.energy` band when available, else inferred
-  from mood tags. Vibes = `VIBE_RULES` conditions over (energy band, genres, moods).
-  `MULTI_LABEL` controls single- vs multi-bucket assignment.
+  `GENRE_BUCKETS`. Subgenre = `_match_subgenres()` scores `SUBGENRE_BUCKETS` entries the
+  same way, but only within already-matched buckets (empty = fall back to coarse genre).
+  Energy = `audio-features.energy` band when available, else inferred from mood tags.
+  Vibes = `VIBE_RULES` conditions over (energy band, genres, moods). `MULTI_LABEL`
+  controls single- vs multi-bucket assignment.
 
 - **`spotify_client.py`** handles OAuth, pagination, and crucially `probe_capabilities()`:
   Spotify blocked the `audio-features` endpoint for apps created after late 2024. The
@@ -85,14 +94,30 @@ fetch (spotify_client) -> enrich (spotify_client + enrich) -> classify -> {query
   aren't re-queried every run.
 
 - **`playlists.py`** builds name->track_id clusters for the enabled `PLAYLIST_SCHEMES`
-  (`vibe` / `genre` / `combined`) and syncs idempotently: playlists are matched by the
-  `PLAYLIST_PREFIX`-prefixed name and updated in place rather than duplicated.
+  (`vibe` / `genre` / `subgenre` / `combined`) and syncs idempotently: playlists are
+  matched by the `PLAYLIST_PREFIX`-prefixed name and updated in place rather than
+  duplicated. The opt-in `subgenre` scheme falls back to the coarse genre for tracks
+  with no subgenre.
 
 - **`llm.py`** is optional Claude enrichment, off unless `USE_LLM` and `ANTHROPIC_API_KEY`
   are set; `anthropic` is imported lazily so it isn't a hard dependency.
 
+- **`subgenre_gen.py`** (`cli.py gen-subgenres`) calls Claude (Sonnet) with the web-search
+  tool to fetch an exhaustive subgenre list for coarse genres missing one (or `--genre` /
+  `--all`), writing results to the `subgenres_generated.py` overlay. Needs `ANTHROPIC_API_KEY`;
+  `anthropic` is imported lazily. Run `classify` afterwards to apply.
+
 - **`gui.py`** is a read-only Tkinter browser; it loads all labelled rows once and filters
-  in-memory.
+  in-memory. It also exposes the genre-specification "Classify track / library" actions.
+
+- **`genreclass/`** is the ISRC-based genre/subgenre/energy/vibe classifier (a self-
+  contained package, separate from the rules pipeline above): `resolver.py` (any
+  identifier → canonical ISRC), `providers.py` (Spotify `MetadataProvider` +
+  ReccoBeats/Deezer `FeatureProvider`), `classifier.py` (Claude Haiku, constrained to
+  `taxonomy.json`), `pipeline.py` (resolve → features → classify → persist; single +
+  resumable batch). Reuses root `config.py`/`db.py`/`text_utils.py`/`spotify_client.py`;
+  numeric features come from ReccoBeats only (never Spotify audio-features). Entered via
+  `python cli.py genre-classify` and persisted to the `classifications` table by ISRC.
 
 ## Conventions
 

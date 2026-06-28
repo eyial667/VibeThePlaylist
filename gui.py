@@ -27,6 +27,7 @@ import db
 
 # --- option lists, derived from config so they always stay in sync ---------
 GENRES = list(config.GENRE_BUCKETS.keys()) + [config.DEFAULT_GENRE]
+SUBGENRES = [sg for subs in config.SUBGENRE_BUCKETS.values() for sg in subs]
 VIBES = list(config.VIBE_RULES.keys()) + [config.DEFAULT_VIBE]
 ENERGIES = [band[2] for band in config.ENERGY_BANDS]  # low / mid / high
 MOODS = list(config.MOOD_TAGS.keys())
@@ -39,7 +40,7 @@ def load_rows() -> list[dict]:
         with db.connect() as conn:
             rows = conn.execute(
                 "SELECT t.id, t.artist_name, t.name, t.album, l.genre_buckets, "
-                "l.energy_band, l.moods, l.vibes "
+                "l.subgenres, l.energy_band, l.moods, l.vibes "
                 "FROM labels l JOIN tracks t ON t.id = l.track_id"
             ).fetchall()
     except Exception:
@@ -52,6 +53,7 @@ def load_rows() -> list[dict]:
             "title": r["name"],
             "album": r["album"] or "",
             "genres": json.loads(r["genre_buckets"] or "[]"),
+            "subgenres": json.loads(r["subgenres"] or "[]"),
             "energy": r["energy_band"],
             "moods": json.loads(r["moods"] or "[]"),
             "vibes": json.loads(r["vibes"] or "[]"),
@@ -130,8 +132,12 @@ def _make_mode_button(parent, sel, on_flip):
 def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
     """Pure filter test. `inc`/`exc` map category keys (g,v,e,m,ar,al) to sets of
     included/excluded values. Excludes are hard (any hit removes the row);
-    includes combine via any_mode (Any selected) or all (All categories)."""
+    includes combine via any_mode (Any=OR) or all (AND). In AND mode, multi-value
+    categories (genres, subgenres, vibes, moods) require ALL selected values to be
+    present on the track, not just one."""
     if exc["g"] & set(row["genres"]):
+        return False
+    if exc["sg"] & set(row["subgenres"]):
         return False
     if exc["v"] & set(row["vibes"]):
         return False
@@ -144,21 +150,42 @@ def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
     if row["album"] in exc["al"]:
         return False
     checks = []
-    if inc["g"]:
-        checks.append(bool(inc["g"] & set(row["genres"])))
-    if inc["v"]:
-        checks.append(bool(inc["v"] & set(row["vibes"])))
-    if inc["e"]:
-        checks.append(row["energy"] in inc["e"])
-    if inc["m"]:
-        checks.append(bool(inc["m"] & set(row["moods"])))
-    if inc["ar"]:
-        checks.append(row["artist"] in inc["ar"])
-    if inc["al"]:
-        checks.append(row["album"] in inc["al"])
-    if not checks:
-        return True  # nothing included -> keep (subject to excludes above)
-    return any(checks) if any_mode else all(checks)
+    if any_mode:
+        if inc["g"]:
+            checks.append(bool(inc["g"] & set(row["genres"])))
+        if inc["sg"]:
+            checks.append(bool(inc["sg"] & set(row["subgenres"])))
+        if inc["v"]:
+            checks.append(bool(inc["v"] & set(row["vibes"])))
+        if inc["e"]:
+            checks.append(row["energy"] in inc["e"])
+        if inc["m"]:
+            checks.append(bool(inc["m"] & set(row["moods"])))
+        if inc["ar"]:
+            checks.append(row["artist"] in inc["ar"])
+        if inc["al"]:
+            checks.append(row["album"] in inc["al"])
+        if not checks:
+            return True
+        return any(checks)
+    else:
+        if inc["g"]:
+            checks.append(inc["g"] <= set(row["genres"]))
+        if inc["sg"]:
+            checks.append(inc["sg"] <= set(row["subgenres"]))
+        if inc["v"]:
+            checks.append(inc["v"] <= set(row["vibes"]))
+        if inc["e"]:
+            checks.append(row["energy"] in inc["e"])
+        if inc["m"]:
+            checks.append(inc["m"] <= set(row["moods"]))
+        if inc["ar"]:
+            checks.append(row["artist"] in inc["ar"])
+        if inc["al"]:
+            checks.append(row["album"] in inc["al"])
+        if not checks:
+            return True
+        return all(checks)
 
 
 class CheckGroup(ttk.LabelFrame):
@@ -350,6 +377,9 @@ class App(ttk.Frame):
         self.genre_group = CheckGroup(filters, "Genres", GENRES, self.refresh)
         self.genre_group.pack(side="left", fill="y", padx=(0, 8))
 
+        self.subgenre_group = CheckListGroup(filters, "Subgenres", SUBGENRES, self.refresh)
+        self.subgenre_group.pack(side="left", fill="both", padx=8)
+
         self.vibe_group = CheckGroup(filters, "Vibes", VIBES, self.refresh)
         self.vibe_group.pack(side="left", fill="y", padx=8)
 
@@ -383,6 +413,12 @@ class App(ttk.Frame):
         self.create_btn = ttk.Button(controls, text="Create Spotify playlist…",
                                       command=self.create_playlist)
         self.create_btn.pack(side="left", padx=(8, 0))
+        self.classify_btn = ttk.Button(controls, text="Classify track…",
+                                       command=self.classify_track)
+        self.classify_btn.pack(side="left", padx=(8, 0))
+        self.classify_lib_btn = ttk.Button(controls, text="Classify library…",
+                                           command=self.classify_library)
+        self.classify_lib_btn.pack(side="left", padx=(8, 0))
         ttk.Label(controls, text="   Match:").pack(side="left")
         self.match_mode = tk.StringVar(value="any")
         ttk.Radiobutton(controls, text="Any selected", value="any",
@@ -396,10 +432,10 @@ class App(ttk.Frame):
                   foreground="gray40").pack(side="right", padx=12)
 
         # --- bottom: results table ---
-        cols = ("artist", "title", "album", "genres", "energy", "vibes")
+        cols = ("artist", "title", "album", "genres", "subgenres", "energy", "vibes")
         self.tree = ttk.Treeview(self, columns=cols, show="headings", height=18)
         widths = {"artist": 150, "title": 200, "album": 170,
-                  "genres": 150, "energy": 60, "vibes": 180}
+                  "genres": 150, "subgenres": 150, "energy": 60, "vibes": 180}
         for c in cols:
             self.tree.heading(c, text=c.capitalize())
             self.tree.column(c, width=widths[c], anchor="w")
@@ -418,8 +454,9 @@ class App(ttk.Frame):
 
     # --- filtering ---------------------------------------------------------
     def clear_all(self) -> None:
-        for group in (self.genre_group, self.vibe_group, self.energy_group,
-                      self.mood_group, self.artist_group, self.album_group):
+        for group in (self.genre_group, self.subgenre_group, self.vibe_group,
+                      self.energy_group, self.mood_group, self.artist_group,
+                      self.album_group):
             group.reset()
         self.refresh()
 
@@ -428,15 +465,27 @@ class App(ttk.Frame):
 
     def refresh(self) -> None:
         inc = {
-            "g": self.genre_group.included(), "v": self.vibe_group.included(),
+            "g": self.genre_group.included(), "sg": self.subgenre_group.included(),
+            "v": self.vibe_group.included(),
             "e": self.energy_group.included(), "m": self.mood_group.included(),
             "ar": self.artist_group.included(), "al": self.album_group.included(),
         }
         exc = {
-            "g": self.genre_group.excluded(), "v": self.vibe_group.excluded(),
+            "g": self.genre_group.excluded(), "sg": self.subgenre_group.excluded(),
+            "v": self.vibe_group.excluded(),
             "e": self.energy_group.excluded(), "m": self.mood_group.excluded(),
             "ar": self.artist_group.excluded(), "al": self.album_group.excluded(),
         }
+
+        # cross-filter subgenres by ticked genres (regardless of include/exclude mode)
+        ticked_genres = self.genre_group.sel.selected
+        if ticked_genres:
+            allowed_subgenres = set().union(
+                *(config.SUBGENRE_BUCKETS.get(g, []) for g in ticked_genres)
+            )
+        else:
+            allowed_subgenres = set()  # hide all subgenres until a genre is chosen
+        self.subgenre_group.set_allowed(allowed_subgenres)
 
         # cross-filter the panels by INCLUDED selections only (excludes don't narrow):
         # albums limited to included artists' albums, artists to included albums' artists
@@ -450,9 +499,11 @@ class App(ttk.Frame):
         self.tree.delete(*self.tree.get_children())
         self.shown_rows = [row for row in self.rows if self._matches(row, inc, exc)]
         for row in self.shown_rows:
+            # show precise subgenres when known, else fall back to coarse genres
+            subgenres = ", ".join(row["subgenres"]) if row["subgenres"] else ", ".join(row["genres"])
             self.tree.insert("", "end", values=(
                 row["artist"], row["title"], row["album"], ", ".join(row["genres"]),
-                row["energy"] or "?", ", ".join(row["vibes"]),
+                subgenres, row["energy"] or "?", ", ".join(row["vibes"]),
             ))
         self.count_var.set(f"{len(self.shown_rows)} / {len(self.rows)} tracks")
 
@@ -532,6 +583,106 @@ class App(ttk.Frame):
             messagebox.showerror("Playlist failed", str(exc))
         else:
             messagebox.showinfo("Playlist ready", f"'{full}' now has {count} track(s).")
+
+    # --- genre-specification classify (off the UI thread) -----------------
+    def _selected_track_seed(self) -> str:
+        """Prefill text for the classify prompt from the selected table row."""
+        sel = self.tree.selection()
+        if sel:
+            vals = self.tree.item(sel[0], "values")
+            if vals:
+                return f"{vals[0]} - {vals[1]}"  # "artist - title"
+        return ""
+
+    def classify_track(self) -> None:
+        """Classify one track (selected row or typed 'artist - title') and show
+        the stored result. Network + LLM run on a worker thread."""
+        seed = self._selected_track_seed()
+        spec = self._ask_string(
+            "Classify track",
+            "Enter a track as  artist - title  (or an ISRC, or a Spotify track ID).\n"
+            "Resolves to ISRC, fetches features, and classifies with Claude.",
+            initial=seed,
+        )
+        if not spec:
+            return
+        spec = spec.strip()
+        self.classify_btn.config(state="disabled", text="Classifying…")
+
+        def worker():
+            try:
+                import genreclass as gp
+                import text_utils
+                pipe = gp.build_default_pipeline()
+                if text_utils.is_real_isrc(spec):
+                    ti = gp.TrackInput(isrc=spec)
+                elif " " not in spec and len(spec) == 22:  # looks like a Spotify id
+                    ti = gp.TrackInput(spotify_id=spec)
+                else:
+                    artist, title = gp.parse_track_arg(spec)
+                    ti = gp.TrackInput(artist=artist, title=title)
+                row = pipe.classify_track(ti)
+                self.after(0, lambda: self._classify_done(row, None))
+            except Exception as exc:  # noqa: BLE001 - surface failures to the user
+                self.after(0, lambda: self._classify_done(None, exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _classify_done(self, row: dict | None, exc: Exception | None) -> None:
+        self.classify_btn.config(state="normal", text="Classify track…")
+        if exc is not None:
+            messagebox.showerror("Classification failed", str(exc))
+            return
+        import genreclass as gp
+        messagebox.showinfo("Classification stored",
+                            "\n".join(gp.format_result_lines(row)))
+
+    def classify_library(self) -> None:
+        """Batch-classify the whole library off the UI thread, with a live
+        progress window. Resumable — skips already-classified tracks."""
+        if not messagebox.askyesno(
+            "Classify library",
+            "Classify every library track (genre/subgenre/energy/vibe)?\n\n"
+            "Already-classified tracks are skipped. This calls ReccoBeats, "
+            "Deezer and Claude and may take a while; it's safe to close the "
+            "window — progress is saved per track.",
+        ):
+            return
+        self.classify_lib_btn.config(state="disabled", text="Classifying…")
+        prog = tk.Toplevel(self)
+        prog.title("Classifying library…")
+        prog.transient(self.winfo_toplevel())
+        status = tk.StringVar(value="Starting…")
+        ttk.Label(prog, textvariable=status).pack(padx=20, pady=10)
+        pbar = ttk.Progressbar(prog, length=320, mode="determinate")
+        pbar.pack(padx=20, pady=(0, 12))
+
+        def progress(done, total):
+            def upd():
+                pbar.config(maximum=max(total, 1), value=done)
+                status.set(f"{done} / {total} tracks")
+            self.after(0, upd)
+
+        def worker():
+            try:
+                import genreclass as gp
+                stats = gp.build_default_pipeline().classify_library(progress=progress)
+                self.after(0, lambda: self._classify_lib_done(prog, stats, None))
+            except Exception as exc:  # noqa: BLE001
+                self.after(0, lambda: self._classify_lib_done(prog, None, exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _classify_lib_done(self, prog, stats, exc: Exception | None) -> None:
+        self.classify_lib_btn.config(state="normal", text="Classify library…")
+        try:
+            prog.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+        if exc is not None:
+            messagebox.showerror("Batch classification failed", str(exc))
+            return
+        messagebox.showinfo("Library classified", "\n".join(stats.summary_lines()))
 
 
 def main() -> None:

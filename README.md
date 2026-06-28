@@ -99,6 +99,98 @@ only for a genuine blend, capped by `LLM_MAX_GENRES`), which fixes the
 "3–7 genres per track" noise from artist-level Spotify genres. LLM results are
 cached (method `llm`) and preserved by later `classify` runs.
 
+## ISRC-based genre/subgenre classification (`genre-classify`)
+
+A second, higher-resolution classifier assigns each track a **genre, subgenre,
+energy, and vibe** and stores the result in its own `classifications` table,
+keyed by **ISRC**. It works for an entire international catalog (American,
+European, Latin — no region is assumed) and degrades gracefully so every track
+always gets a result.
+
+```bash
+# single track, three ways:
+python cli.py genre-classify --isrc QM6MZ2040267
+python cli.py genre-classify --spotify-id 4iV5W9uYEdYUVa79Axb7Rh
+python cli.py genre-classify --track "Bad Bunny - Dákiti"
+
+# whole library (resumable — safe to Ctrl-C and re-run; skips done rows):
+python cli.py genre-classify --all
+python cli.py genre-classify --all --reclassify     # redo everything
+python cli.py genre-classify --all --limit 200 --verbose
+```
+
+Needs `ANTHROPIC_API_KEY` in `.env`. In the GUI, **Classify track…** classifies
+the selected/entered track and shows the stored result; **Classify library…**
+runs the resumable batch off the UI thread with a progress bar.
+
+The feature lives in the **`genreclass/`** package, separate from the original
+pipeline at the repo root:
+
+```
+genreclass/
+  resolver.py    any identifier -> canonical ISRC (the join key)
+  providers.py   MetadataProvider (Spotify) + FeatureProvider (ReccoBeats/Deezer)
+  classifier.py  Claude Haiku classifier, constrained to taxonomy.json
+  pipeline.py    resolve -> features -> classify -> persist (single + batch)
+  taxonomy.py    loader for taxonomy.json (the editable controlled vocabulary)
+  taxonomy.json  the controlled vocabulary itself
+```
+
+Shared infrastructure (`config.py`, `db.py`, `text_utils.py`, `spotify_client.py`)
+stays at the root and is reused by the original pipeline.
+
+### How a track is resolved to an ISRC
+
+Everything downstream joins on **ISRC**, never on raw artist+title, so each input
+is normalized first (`genreclass/resolver.py`):
+
+| Input you have        | What happens                                                        |
+|-----------------------|---------------------------------------------------------------------|
+| ISRC                  | used directly                                                       |
+| Spotify track ID      | track fetched, `external_ids.isrc` read                            |
+| Artist + title only   | Spotify search → best match's ISRC, with a `match_confidence`       |
+
+Matching is robust to diacritics/accents, non-ASCII titles, `feat.`/`ft.`
+credits, and remix/edit/version suffixes (`text_utils.py`) across all regions.
+The resolved ISRC + Spotify ID are written back onto the library row so future
+runs skip resolution. If **no** ISRC can be found, the track falls back to a
+normalized `key:artist|title` identifier, is flagged as a weak match, and shows
+up in the coverage report.
+
+### Feature fallback chain
+
+Numeric audio features (energy, danceability, valence, acousticness, tempo) come
+from **ReccoBeats only** — Spotify's `audio-features` endpoint is deprecated
+(403 for new apps since 2024-11-27) and is **never** called. The provider
+degrades in order, recording which path it took (`features_source`):
+
+1. **`reccobeats_lookup`** — ReccoBeats lookup by Spotify ID → audio features.
+2. **`reccobeats_extracted`** — on a lookup miss, fetch a 30 s **Deezer** preview
+   (broad international catalog, free) and POST the clip to ReccoBeats'
+   audio-feature **extraction** endpoint. (Deezer's own API only returns BPM/gain,
+   so it's used purely as the audio source.)
+3. **`none`** — no features available; Claude classifies from metadata + genre
+   hints alone, at lower confidence.
+
+The energy label is derived from the numeric `energy`/`danceability` when present
+(consistent across any classifier), otherwise from the model's judgment. All
+external results — Spotify metadata, ReccoBeats features, Deezer previews — are
+cached in the DB keyed by ISRC, so re-runs don't re-hit the APIs.
+
+### Editing the taxonomy
+
+The classifier is constrained to a controlled vocabulary in
+**`genreclass/taxonomy.json`** (allowed `genres` → `subgenres`, the `energy`
+enum, and the `vibe` list). The model must pick from these or return
+`genre: "other"` with a free-text `suggested_label` rather than inventing a
+label. Edit the file to retune — add/remove genres, subgenres, or vibes — then
+re-run `python cli.py genre-classify --all --reclassify`. The model id is
+configurable via `CLASSIFIER_MODEL` in `.env` (default `claude-haiku-4-5`) so you
+can A/B another model without code changes. Providers (`MetadataProvider`,
+`FeatureProvider`, `Classifier`) sit behind interfaces in
+`genreclass/providers.py` and `genreclass/classifier.py`, so a paid feature
+source or a different model can be dropped in later.
+
 ## Tuning
 Open `config.py`:
 - `GENRE_BUCKETS` — fold fine genres into your coarse buckets.
@@ -111,4 +203,3 @@ Open `config.py`:
 
 After editing, just re-run `python cli.py classify` (and `playlists`) — no need
 to re-fetch.
-```

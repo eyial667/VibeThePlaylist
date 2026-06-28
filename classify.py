@@ -35,6 +35,46 @@ def _match_buckets(raw_genres: list[str]) -> list[str]:
     return ordered[:cap]
 
 
+def _match_buckets_agreed(spotify_genres: list[str], lfm_tags: list[str]) -> list[str]:
+    """Match buckets requiring both sources to agree; falls back to Last.fm, then Spotify."""
+    has_lfm = any(t != "__none__" for t in lfm_tags)
+    spotify_buckets = _match_buckets(spotify_genres) if spotify_genres else []
+    lfm_buckets = _match_buckets(lfm_tags) if has_lfm else []
+    spotify_set = {b for b in spotify_buckets if b != config.DEFAULT_GENRE}
+    lfm_set = {b for b in lfm_buckets if b != config.DEFAULT_GENRE}
+    agreed = spotify_set & lfm_set
+    if agreed:
+        return [b for b in spotify_buckets if b in agreed]
+    result = lfm_buckets if has_lfm else spotify_buckets
+    return result or [config.DEFAULT_GENRE]
+
+
+def _match_subgenres(raw_genres: list[str], tags: list[str], genres: list[str]) -> list[str]:
+    """Pick precise subgenres nested under the track's already-matched buckets.
+
+    Mirrors `_match_buckets`: each candidate subgenre is scored by needle hits
+    against the combined raw genres + Last.fm tags, but only subgenres whose
+    parent bucket is in `genres` are considered — so a subgenre never contradicts
+    the coarse genre. Returns strongest-first, capped to config.MAX_SUBGENRES.
+    Empty when nothing matches (consumers then fall back to the coarse genre).
+    """
+    hay = " | ".join(g.lower() for g in (raw_genres + tags))
+    scored: list[tuple[int, str]] = []
+    for bucket in genres:
+        for label, needles in config.SUBGENRE_BUCKETS.get(bucket, {}).items():
+            hits = sum(1 for n in needles if n in hay)
+            if hits:
+                scored.append((hits, label))
+    if not scored:
+        return []
+    scored.sort(key=lambda x: -x[0])  # stable: ties keep config order
+    ordered: list[str] = []
+    for _, label in scored:
+        if label not in ordered:
+            ordered.append(label)
+    return ordered[: config.MAX_SUBGENRES]
+
+
 def _match_moods(tags: list[str]) -> list[str]:
     hay = " | ".join(tags)
     return [
@@ -139,9 +179,8 @@ def classify_all(overwrite_llm: bool = False) -> int:
         for aid in json.loads(t["artist_ids"]):
             raw_genres.extend(artist_genres.get(aid, []))
         tags = tags_by_track.get(tid, [])
-        raw_genres_plus = raw_genres + tags  # tags also carry genre hints
-
-        genres = _match_buckets(raw_genres_plus)
+        genres = _match_buckets_agreed(raw_genres, tags)
+        subgenres = _match_subgenres(raw_genres, tags, genres)
         moods = _match_moods(tags)
         band = _energy_band(features.get(tid), tags, moods, genres)
         vibes = _match_vibes(band, genres, moods)
@@ -149,6 +188,7 @@ def classify_all(overwrite_llm: bool = False) -> int:
         rows.append({
             "track_id": tid,
             "genre_buckets": json.dumps(genres),
+            "subgenres": json.dumps(subgenres),
             "energy_band": band,
             "moods": json.dumps(moods),
             "vibes": json.dumps(vibes),

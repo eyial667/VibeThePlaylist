@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "library.db"
+TAXONOMY_PATH = Path(os.getenv("TAXONOMY_PATH", ROOT / "genreclass" / "taxonomy.json"))
 
 # --- Credentials (from .env) ---
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "")
@@ -24,11 +25,27 @@ SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
+# --- Genre-specification feature (genre/subgenre/energy/vibe via ISRC) ------
+# Numeric audio features come from ReccoBeats only (Spotify audio-features is
+# deprecated / 403 for new apps — never call it). Deezer supplies a 30s preview
+# clip for the ReccoBeats extraction fallback. Neither needs a key today; a key
+# slot is provided for ReccoBeats in case they gate the API later.
+RECCOBEATS_BASE_URL = os.getenv("RECCOBEATS_BASE_URL", "https://api.reccobeats.com")
+RECCOBEATS_API_KEY = os.getenv("RECCOBEATS_API_KEY", "")  # usually blank (free)
+DEEZER_BASE_URL = os.getenv("DEEZER_BASE_URL", "https://api.deezer.com")
+
+# Claude model used by the genre-specification classifier. Swappable via env so
+# another model can be A/B tested without touching code.
+CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "claude-haiku-4-5")
+
+# The canonical energy enum (ENERGY_LEVELS) is derived from ENERGY_BANDS below,
+# which is the single source of truth for both the cut points and the labels.
+
 SPOTIFY_SCOPES = "user-library-read playlist-modify-public playlist-modify-private"
 
 # --- Behaviour toggles ---
 USE_LLM = False  # optional Claude enrichment; off by default to avoid cost
-PLAYLIST_SCHEMES = ["vibe", "genre", "combined"]  # any subset of these
+PLAYLIST_SCHEMES = ["vibe", "genre", "combined"]  # subset of: vibe/genre/subgenre/combined
 PLAYLIST_VISIBILITY_PUBLIC = False
 PLAYLIST_PREFIX = "🤖 "
 MIN_TRACKS_PER_PLAYLIST = 8  # skip tiny clusters
@@ -46,7 +63,9 @@ GENRE_BUCKETS: dict[str, list[str]] = {
                    "drum and bass", "dnb", "garage", "synthwave", "electronic"],
     "Pop": ["pop", "synthpop", "k-pop", "dance pop"],
     "Rock": ["rock", "punk", "grunge", "indie rock", "alternative"],
-    "Metal": ["metal", "metalcore", "hardcore", "djent"],
+    "Metal": ["heavy metal", "death metal", "black metal", "thrash metal",
+              "doom metal", "power metal", "speed metal", "metalcore",
+              "hardcore", "djent", "nu metal", "nu-metal"],
     "Jazz": ["jazz", "bebop", "swing", "fusion"],
     "Classical": ["classical", "orchestra", "baroque", "piano", "opera"],
     "Folk/Acoustic": ["folk", "acoustic", "singer-songwriter", "americana", "country"],
@@ -59,6 +78,88 @@ DEFAULT_GENRE = "Other"
 # Prevents noisy over-labelling from artist-level genres. Ignored when
 # MULTI_LABEL is False (then it's always 1). The LLM pass uses LLM_MAX_GENRES.
 MAX_GENRES = 2
+
+# --- Subgenres -------------------------------------------------------------
+# Precise subgenres nested under each coarse bucket above. Matching mirrors
+# GENRE_BUCKETS (substring, case-insensitive against a track's raw genres +
+# Last.fm tags), but a subgenre only applies when its parent bucket already
+# matched — so subgenres never contradict the coarse genre. When no subgenre
+# matches, consumers fall back to the coarse genre, so existing behaviour is
+# preserved. Tune freely here, then re-run `python cli.py classify`.
+# Format: coarse bucket -> {subgenre label: [needle substrings]}.
+# `_SUBGENRE_BUCKETS_BASE` is the hand-curated set; it is merged below with the
+# auto-generated overlay in `subgenres_generated.py` (produced by
+# `python cli.py gen-subgenres`). Hand-curated entries win on conflict.
+_SUBGENRE_BUCKETS_BASE: dict[str, dict[str, list[str]]] = {
+    "Hip-hop/Rap": {
+        "Cloud Rap": ["cloud rap"], "Drill": ["drill"], "Trap": ["trap"],
+        "Boom Bap": ["boom bap"], "Grime": ["grime"],
+    },
+    "R&B/Soul": {
+        "Neo Soul": ["neo soul", "neo-soul"], "Funk": ["funk"], "Motown": ["motown"],
+    },
+    "Electronic": {
+        "House": ["house"], "Techno": ["techno"], "Trance": ["trance"],
+        "Drum & Bass": ["drum and bass", "dnb"], "Dubstep": ["dubstep"],
+        "Garage": ["garage"], "Synthwave": ["synthwave"],
+    },
+    "Pop": {
+        "Synthpop": ["synthpop"], "Indie Pop": ["indie pop"],
+        "Dance Pop": ["dance pop"], "K-pop": ["k-pop"],
+    },
+    "Rock": {
+        "Classic Rock": ["classic rock"], "Alternative": ["alternative"],
+        "Indie Rock": ["indie rock"], "Punk": ["punk"], "Grunge": ["grunge"],
+    },
+    "Metal": {
+        "Metalcore": ["metalcore"], "Hardcore": ["hardcore"], "Djent": ["djent"],
+    },
+    "Jazz": {
+        "Bebop": ["bebop"], "Swing": ["swing"], "Fusion": ["fusion"],
+    },
+    "Latin": {
+        "Reggaeton": ["reggaeton"], "Salsa": ["salsa"], "Bachata": ["bachata"],
+        "Cumbia": ["cumbia"], "Latin Pop": ["latin pop"],
+    },
+    "Reggae/Dub": {
+        "Dancehall": ["dancehall"], "Ska": ["ska"], "Dub": ["dub"],
+    },
+    "Ambient/Lo-fi": {
+        "Lo-fi": ["lo-fi", "lofi"], "Chillhop": ["chillhop"],
+        "Downtempo": ["downtempo"], "Ambient": ["ambient"],
+    },
+}
+
+
+def _merge_subgenres(
+    base: dict[str, dict[str, list[str]]],
+    overlay: dict[str, dict[str, list[str]]],
+) -> dict[str, dict[str, list[str]]]:
+    """Merge the auto-generated overlay into the hand-curated base.
+
+    Hand-curated entries take precedence: a subgenre label present in `base`
+    keeps its needles even if the overlay also defines it. Overlay-only buckets
+    and labels are added. The result is what consumers see as SUBGENRE_BUCKETS.
+    """
+    out = {bucket: dict(subs) for bucket, subs in base.items()}
+    for bucket, subs in (overlay or {}).items():
+        dst = out.setdefault(bucket, {})
+        for label, needles in subs.items():
+            dst.setdefault(label, list(needles))  # base wins on conflict
+    return out
+
+
+try:
+    from subgenres_generated import GENERATED_SUBGENRES as _GENERATED_SUBGENRES
+except Exception:  # overlay is optional; absence just means no generated extras
+    _GENERATED_SUBGENRES = {}
+
+SUBGENRE_BUCKETS: dict[str, dict[str, list[str]]] = _merge_subgenres(
+    _SUBGENRE_BUCKETS_BASE, _GENERATED_SUBGENRES
+)
+
+# Cap on subgenres the free classifier keeps per track (strongest first).
+MAX_SUBGENRES = 2
 
 # --- Vibe / mood / activity rules ------------------------------------------
 # Mood tag normalisation: map raw Last.fm tag substrings -> canonical mood.
@@ -75,6 +176,9 @@ MOOD_TAGS: dict[str, list[str]] = {
 
 # Energy banding from Spotify audio-features `energy` (0..1), used when available.
 ENERGY_BANDS = [(0.0, 0.40, "low"), (0.40, 0.70, "mid"), (0.70, 1.01, "high")]
+# Canonical energy enum, derived from the bands so the two never drift. Shared by
+# the rules engine, the LLM refiner, and the genre-specification classifier.
+ENERGY_LEVELS = [name for _lo, _hi, name in ENERGY_BANDS]
 
 # Activity/context rules. Each rule fires if ANY of its trigger sets match.
 # Evaluated against: energy_band, genre buckets, moods.

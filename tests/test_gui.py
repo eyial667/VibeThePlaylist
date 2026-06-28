@@ -8,6 +8,7 @@ import gui
 
 def test_option_lists_derive_from_config():
     assert gui.GENRES == list(config.GENRE_BUCKETS.keys()) + [config.DEFAULT_GENRE]
+    assert gui.SUBGENRES == [sg for subs in config.SUBGENRE_BUCKETS.values() for sg in subs]
     assert gui.VIBES == list(config.VIBE_RULES.keys()) + [config.DEFAULT_VIBE]
     assert gui.ENERGIES == [b[2] for b in config.ENERGY_BANDS]
     assert gui.MOODS == list(config.MOOD_TAGS.keys())
@@ -49,13 +50,13 @@ def test_selection_toggle_and_mode():
     assert s.included() == set() and s.excluded() == set()
 
 
-def _row(genres=(), vibes=(), energy="mid", moods=(), artist="A", album="X"):
-    return {"genres": list(genres), "vibes": list(vibes), "energy": energy,
-            "moods": list(moods), "artist": artist, "album": album}
+def _row(genres=(), subgenres=(), vibes=(), energy="mid", moods=(), artist="A", album="X"):
+    return {"genres": list(genres), "subgenres": list(subgenres), "vibes": list(vibes),
+            "energy": energy, "moods": list(moods), "artist": artist, "album": album}
 
 
 def _filters(**kw):
-    empty = {k: set() for k in ("g", "v", "e", "m", "ar", "al")}
+    empty = {k: set() for k in ("g", "sg", "v", "e", "m", "ar", "al")}
     inc = {**empty, **{k[4:]: set(v) for k, v in kw.items() if k.startswith("inc_")}}
     exc = {**empty, **{k[4:]: set(v) for k, v in kw.items() if k.startswith("exc_")}}
     return inc, exc
@@ -84,3 +85,13 @@ def test_include_any_vs_all():
 def test_no_filters_keeps_everything():
     inc, exc = _filters()
     assert gui.row_matches(_row(), inc, exc, any_mode=True) is True
+
+
+def test_subgenre_include_and_exclude():
+    inc, exc = _filters(inc_sg=["Drill"])
+    assert gui.row_matches(_row(genres=["Hip-hop/Rap"], subgenres=["Drill"]),
+                           inc, exc, any_mode=True) is True
+    assert gui.row_matches(_row(genres=["Hip-hop/Rap"], subgenres=["Trap"]),
+                           inc, exc, any_mode=True) is False
+    inc, exc = _filters(exc_sg=["Drill"])
+    assert gui.row_matches(_row(subgenres=["Drill"]), inc, exc, any_mode=True) is False

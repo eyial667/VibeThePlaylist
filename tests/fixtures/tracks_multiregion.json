@@ -1,0 +1,88 @@
+{
+  "_comment": "Multi-region test fixture for the genre-specification feature. Spans American, European and Latin music (major-label + independent) with diacritics, non-ASCII titles, and feat./remix/edit variants. Each record carries: 'input' (how the catalog row arrives — isrc | spotify_id | name), 'canonical' (what the fake Spotify metadata provider returns when resolved), 'region', and 'feature_mode' (what the fake ReccoBeats provider should do: lookup hit | extraction fallback | none). 'expect_weak' marks intentionally weak name-matches. No region is dominant; matching robustness is general, not regional.",
+  "tracks": [
+    {"region": "american", "input": {"spotify_id": "us0000000000000000a001"}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "us0000000000000000a001", "title": "Blinding Lights", "artist": "The Weeknd", "artist_ids": ["aw1"], "album": "After Hours", "release_date": "2019-11-29", "isrc": "USUG11904206", "genres": ["canadian contemporary r&b", "pop"]}},
+
+    {"region": "american", "input": {"isrc": "USUM71902345"}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "us0000000000000000a002", "title": "Bad Guy", "artist": "Billie Eilish", "artist_ids": ["abe1"], "album": "When We All Fall Asleep", "release_date": "2019-03-29", "isrc": "USUM71902345", "genres": ["electropop", "pop"]}},
+
+    {"region": "american", "input": {"artist": "Kendrick Lamar", "title": "HUMBLE."}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "us0000000000000000a003", "title": "HUMBLE.", "artist": "Kendrick Lamar", "artist_ids": ["akl1"], "album": "DAMN.", "release_date": "2017-04-14", "isrc": "USUM71703861", "genres": ["conscious hip hop", "rap", "west coast rap"]}},
+
+    {"region": "american", "input": {"artist": "Beyoncé", "title": "CUFF IT"}, "feature_mode": "extract",
+     "canonical": {"spotify_id": "us0000000000000000a004", "title": "CUFF IT", "artist": "Beyoncé", "artist_ids": ["aby1"], "album": "RENAISSANCE", "release_date": "2022-07-29", "isrc": "USSM12204658", "genres": ["pop", "r&b", "dance pop"]}},
+
+    {"region": "american", "input": {"artist": "Calvin Harris", "title": "This Is What You Came For (feat. Rihanna)"}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "us0000000000000000a005", "title": "This Is What You Came For", "artist": "Calvin Harris, Rihanna", "artist_ids": ["ach1", "arh1"], "album": "This Is What You Came For", "release_date": "2016-04-29", "isrc": "GBARL1600477", "genres": ["edm", "house", "pop"]}},
+
+    {"region": "american", "input": {"artist": "Miles Davis", "title": "So What"}, "feature_mode": "extract",
+     "canonical": {"spotify_id": "us0000000000000000a006", "title": "So What", "artist": "Miles Davis", "artist_ids": ["amd1"], "album": "Kind of Blue", "release_date": "1959-08-17", "isrc": "USSM15900113", "genres": ["bebop", "cool jazz", "jazz"]}},
+
+    {"region": "american", "input": {"artist": "Bon Iver", "title": "Holocene"}, "feature_mode": "none",
+     "canonical": {"spotify_id": "us0000000000000000a007", "title": "Holocene", "artist": "Bon Iver", "artist_ids": ["abi1"], "album": "Bon Iver", "release_date": "2011-06-17", "isrc": "USJAY1100021", "genres": ["indie folk", "folk"]}},
+
+    {"region": "american", "input": {"artist": "Metallica", "title": "Enter Sandman - Remastered 2021"}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "us0000000000000000a008", "title": "Enter Sandman", "artist": "Metallica", "artist_ids": ["amt1"], "album": "Metallica", "release_date": "1991-08-12", "isrc": "USUM71210911", "genres": ["heavy metal", "metal", "thrash metal"]}},
+
+    {"region": "european", "input": {"artist": "Édith Piaf", "title": "Non, je ne regrette rien"}, "feature_mode": "extract",
+     "canonical": {"spotify_id": "eu0000000000000000e001", "title": "Non, je ne regrette rien", "artist": "Édith Piaf", "artist_ids": ["aep1"], "album": "L'Intégrale", "release_date": "1960-11-10", "isrc": "FRZ026000010", "genres": ["chanson", "french pop"]}},
+
+    {"region": "european", "input": {"spotify_id": "eu0000000000000000e002"}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "eu0000000000000000e002", "title": "Beggin'", "artist": "Måneskin", "artist_ids": ["amn1"], "album": "Chosen", "release_date": "2017-12-08", "isrc": "ITRSE2000182", "genres": ["italian rock", "rock", "glam rock"]}},
+
+    {"region": "european", "input": {"artist": "Stromae", "title": "Alors on danse"}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "eu0000000000000000e003", "title": "Alors on danse", "artist": "Stromae", "artist_ids": ["ast1"], "album": "Cheese", "release_date": "2010-01-01", "isrc": "BEP010900840", "genres": ["belgian pop", "electpropop", "dance pop"]}},
+
+    {"region": "european", "input": {"artist": "Sigur Rós", "title": "Hoppípolla"}, "feature_mode": "none",
+     "canonical": {"spotify_id": "eu0000000000000000e004", "title": "Hoppípolla", "artist": "Sigur Rós", "artist_ids": ["asr1"], "album": "Takk...", "release_date": "2005-09-12", "isrc": "GBBPW0500140", "genres": ["icelandic post-rock", "ambient", "post-rock"]}},
+
+    {"region": "european", "input": {"artist": "Mylène Farmer", "title": "Désenchantée"}, "feature_mode": "extract",
+     "canonical": {"spotify_id": "eu0000000000000000e005", "title": "Désenchantée", "artist": "Mylène Farmer", "artist_ids": ["amf1"], "album": "L'Autre...", "release_date": "1991-03-22", "isrc": "FRZ039100120", "genres": ["french pop", "synth-pop"]}},
+
+    {"region": "european", "input": {"artist": "Kraftwerk", "title": "Das Model"}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "eu0000000000000000e006", "title": "Das Model", "artist": "Kraftwerk", "artist_ids": ["akw1"], "album": "Die Mensch-Maschine", "release_date": "1978-05-01", "isrc": "DEA017800050", "genres": ["krautrock", "electronic", "synth-pop"]}},
+
+    {"region": "european", "input": {"artist": "ABBA", "title": "Dancing Queen"}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "eu0000000000000000e007", "title": "Dancing Queen", "artist": "ABBA", "artist_ids": ["aab1"], "album": "Arrival", "release_date": "1976-08-15", "isrc": "SEAYG7600010", "genres": ["swedish pop", "europop", "disco"]}},
+
+    {"region": "european", "input": {"artist": "Daft Punk", "title": "One More Time"}, "feature_mode": "extract",
+     "canonical": {"spotify_id": "eu0000000000000000e008", "title": "One More Time", "artist": "Daft Punk", "artist_ids": ["adp1"], "album": "Discovery", "release_date": "2000-11-30", "isrc": "GBDUW0000048", "genres": ["french house", "house", "electronic"]}},
+
+    {"region": "european", "input": {"artist": "Wardruna", "title": "Helvegen"}, "feature_mode": "none",
+     "canonical": {"spotify_id": "eu0000000000000000e009", "title": "Helvegen", "artist": "Wardruna", "artist_ids": ["awr1"], "album": "Runaljod – Yggdrasil", "release_date": "2013-03-15", "isrc": "NOG841300010", "genres": ["nordic folk", "dark folk"]}},
+
+    {"region": "latin", "input": {"artist": "Bad Bunny", "title": "Dákiti (feat. Jhay Cortez)"}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "la0000000000000000l001", "title": "Dákiti", "artist": "Bad Bunny, Jhay Cortez", "artist_ids": ["abb1", "ajc1"], "album": "EL ÚLTIMO TOUR DEL MUNDO", "release_date": "2020-10-30", "isrc": "QM6MZ2040267", "genres": ["reggaeton", "trap latino", "urbano latino"]}},
+
+    {"region": "latin", "input": {"isrc": "USLZ51200032"}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "la0000000000000000l002", "title": "Bailando", "artist": "Enrique Iglesias, Descemer Bueno, Gente de Zona", "artist_ids": ["aei1"], "album": "SEX AND LOVE", "release_date": "2014-04-08", "isrc": "USLZ51200032", "genres": ["latin pop", "reggaeton", "tropical"]}},
+
+    {"region": "latin", "input": {"artist": "Rosalía", "title": "MALAMENTE - Cap.1: Augurio"}, "feature_mode": "extract",
+     "canonical": {"spotify_id": "la0000000000000000l003", "title": "MALAMENTE", "artist": "Rosalía", "artist_ids": ["aro1"], "album": "El Mal Querer", "release_date": "2018-05-30", "isrc": "ESA0X1800010", "genres": ["spanish pop", "flamenco", "art pop"]}},
+
+    {"region": "latin", "input": {"artist": "José José", "title": "El Triste"}, "feature_mode": "extract",
+     "canonical": {"spotify_id": "la0000000000000000l004", "title": "El Triste", "artist": "José José", "artist_ids": ["ajj1"], "album": "José José", "release_date": "1970-01-01", "isrc": "MXF017000010", "genres": ["bolero", "balada", "latin"]}},
+
+    {"region": "latin", "input": {"artist": "Héctor Lavoe", "title": "El Cantante"}, "feature_mode": "none",
+     "canonical": {"spotify_id": "la0000000000000000l005", "title": "El Cantante", "artist": "Héctor Lavoe", "artist_ids": ["ahl1"], "album": "Comedia", "release_date": "1978-01-01", "isrc": "USFA17800010", "genres": ["salsa", "salsa puertorriqueña"]}},
+
+    {"region": "latin", "input": {"spotify_id": "la0000000000000000l006"}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "la0000000000000000l006", "title": "Vivir Mi Vida", "artist": "Marc Anthony", "artist_ids": ["ama1"], "album": "3.0", "release_date": "2013-07-23", "isrc": "USSM11304567", "genres": ["salsa", "latin pop", "tropical"]}},
+
+    {"region": "latin", "input": {"artist": "Gustavo Cerati", "title": "Crimen"}, "feature_mode": "extract",
+     "canonical": {"spotify_id": "la0000000000000000l007", "title": "Crimen", "artist": "Gustavo Cerati", "artist_ids": ["agc1"], "album": "Ahí Vamos", "release_date": "2006-04-04", "isrc": "ARF110600010", "genres": ["rock en espanol", "latin rock", "argentine rock"]}},
+
+    {"region": "latin", "input": {"artist": "Caetano Veloso", "title": "Sozinho"}, "feature_mode": "none",
+     "canonical": {"spotify_id": "la0000000000000000l008", "title": "Sozinho", "artist": "Caetano Veloso", "artist_ids": ["acv1"], "album": "Prenda Minha", "release_date": "1998-01-01", "isrc": "BRBMG9800010", "genres": ["mpb", "bossa nova", "samba"]}},
+
+    {"region": "latin", "input": {"artist": "Karol G", "title": "TQG (with Shakira)"}, "feature_mode": "lookup",
+     "canonical": {"spotify_id": "la0000000000000000l009", "title": "TQG", "artist": "KAROL G, Shakira", "artist_ids": ["akg1", "ash1"], "album": "MAÑANA SERÁ BONITO", "release_date": "2023-02-24", "isrc": "USUG12300845", "genres": ["reggaeton", "urbano latino", "latin pop"]}},
+
+    {"region": "latin", "input": {"artist": "Soda Stereo", "title": "De Música Ligera (Remasterizado)"}, "feature_mode": "extract",
+     "canonical": {"spotify_id": "la0000000000000000l010", "title": "De Música Ligera", "artist": "Soda Stereo", "artist_ids": ["ass1"], "album": "Canción Animal", "release_date": "1990-08-07", "isrc": "ARF119000010", "genres": ["rock en espanol", "argentine rock", "latin rock"]}},
+
+    {"region": "american", "input": {"artist": "Totally Made Up Artist 9000", "title": "A Song That Does Not Exist"}, "feature_mode": "none", "expect_weak": true,
+     "canonical": null}
+  ]
+}
