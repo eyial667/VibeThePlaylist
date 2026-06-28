@@ -14,7 +14,7 @@ def _analysis(*args, **kwargs):
     return _AnalysisResult(args[0], kwargs["datas"], kwargs["hiddenimports"])
 
 
-def test_pyinstaller_spec_executes_without___file__():
+def test_pyinstaller_spec_executes_with_specpath():
     repo_root = Path(__file__).resolve().parents[1]
     spec_path = repo_root / "VibeThePlaylist.spec"
     namespace = {

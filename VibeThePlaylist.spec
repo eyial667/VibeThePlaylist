@@ -3,6 +3,8 @@ from pathlib import Path
 import sys
 
 
+# PyInstaller executes spec files with `SPECPATH` in the global namespace, while
+# `__file__` is not guaranteed to exist there.
 ROOT = Path(SPECPATH).resolve()
 ICON_ICO = ROOT / "assets" / "app.ico"
 ICON_ICNS = ROOT / "assets" / "app.icns"
