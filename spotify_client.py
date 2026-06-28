@@ -1,10 +1,12 @@
 """Spotify access: OAuth, PKCE, fetching liked songs/artists/features, capability probe."""
 from __future__ import annotations
 
+import os
 import time
 from typing import Iterator
 
 import spotipy
+from spotipy.cache_handler import CacheFileHandler
 from spotipy.oauth2 import SpotifyOAuth, SpotifyPKCE
 
 import config
@@ -12,14 +14,41 @@ import config
 _TOKEN_CACHE = str(config.DATA_DIR / ".spotify_token_cache")
 
 
+def _get_cached_token() -> dict | None:
+    return CacheFileHandler(cache_path=_TOKEN_CACHE).get_cached_token()
+
+
+def _required_scopes(scopes: str | None = None) -> set[str]:
+    raw = scopes if scopes is not None else config.SPOTIFY_SCOPES
+    return {scope for scope in raw.split() if scope}
+
+
+def _token_has_required_scopes(token: dict | None, scopes: str | None = None) -> bool:
+    if not token:
+        return False
+    granted = {scope for scope in str(token.get("scope") or "").split() if scope}
+    return _required_scopes(scopes).issubset(granted)
+
+
+def _token_is_valid_or_refreshable(token: dict | None) -> bool:
+    if not token:
+        return False
+    return bool(token.get("refresh_token")) or token.get("expires_at", 0) > time.time()
+
+
+def _clear_cached_token_if_scope_mismatch(scopes: str | None = None) -> bool:
+    token = _get_cached_token()
+    if token and not _token_has_required_scopes(token, scopes):
+        logout()
+        return True
+    return False
+
+
 def is_authenticated() -> bool:
     """True if a valid or refreshable token is cached (no network call)."""
     try:
-        from spotipy.cache_handler import CacheFileHandler
-        token = CacheFileHandler(cache_path=_TOKEN_CACHE).get_cached_token()
-        if not token:
-            return False
-        return bool(token.get("refresh_token")) or token.get("expires_at", 0) > time.time()
+        token = _get_cached_token()
+        return _token_is_valid_or_refreshable(token) and _token_has_required_scopes(token)
     except Exception:
         return False
 
@@ -30,6 +59,7 @@ def get_client_pkce() -> spotipy.Spotify:
         raise RuntimeError(
             "Missing SPOTIFY_CLIENT_ID. Add it to .env or bundle it in config.py."
         )
+    _clear_cached_token_if_scope_mismatch()
     auth = SpotifyPKCE(
         client_id=config.SPOTIFY_CLIENT_ID,
         redirect_uri=config.SPOTIFY_REDIRECT_URI,
@@ -42,7 +72,6 @@ def get_client_pkce() -> spotipy.Spotify:
 
 def logout() -> None:
     """Remove the cached token so the next launch shows the login screen."""
-    import os
     try:
         os.remove(_TOKEN_CACHE)
     except FileNotFoundError:
@@ -55,6 +84,7 @@ def get_client() -> spotipy.Spotify:
             "Missing Spotify credentials. Copy .env.example to .env and fill in "
             "SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET."
         )
+    _clear_cached_token_if_scope_mismatch()
     auth = SpotifyOAuth(
         client_id=config.SPOTIFY_CLIENT_ID,
         client_secret=config.SPOTIFY_CLIENT_SECRET,
