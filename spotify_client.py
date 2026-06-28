@@ -1,21 +1,93 @@
 """Spotify access: OAuth, PKCE, fetching liked songs/artists/features, capability probe."""
 from __future__ import annotations
 
+from collections.abc import MutableMapping
+import logging
 import os
 import time
 from typing import Iterator
 
 import spotipy
-from spotipy.cache_handler import CacheFileHandler
+from spotipy.cache_handler import CacheFileHandler, CacheHandler
 from spotipy.oauth2 import SpotifyOAuth, SpotifyPKCE
 
 import config
 
-_TOKEN_CACHE = str(config.DATA_DIR / ".spotify_token_cache")
+logger = logging.getLogger(__name__)
 
 
-def _get_cached_token() -> dict | None:
-    return CacheFileHandler(cache_path=_TOKEN_CACHE).get_cached_token()
+def _missing_client_id_error() -> str:
+    if config.PACKAGED_APP:
+        return (
+            "Spotify login is not configured in this build. Rebuild the app with a bundled "
+            "SPOTIFY_CLIENT_ID before sharing it."
+        )
+    return (
+        "Spotify login is not configured. Set SPOTIFY_CLIENT_ID in your environment or "
+        "copy local_settings.example.py to local_settings.py and fill it in."
+    )
+
+
+def _missing_client_credentials_error() -> str:
+    if config.PACKAGED_APP:
+        return (
+            "Spotify credentials are not configured in this build. Rebuild the app with "
+            "bundled SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET."
+        )
+    return (
+        "Missing Spotify credentials. Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in "
+        "your environment or copy local_settings.example.py to local_settings.py and fill it in."
+    )
+
+
+class MappingCacheHandler(CacheHandler):
+    """Spotipy cache backed by a mutable mapping (for web session storage, etc.)."""
+
+    def __init__(self, mapping: MutableMapping[str, object], *, key: str = "spotify_token_info"):
+        self.mapping = mapping
+        self.key = key
+
+    def get_cached_token(self):
+        token = self.mapping.get(self.key)
+        return token if isinstance(token, dict) else None
+
+    def save_token_to_cache(self, token_info):
+        self.mapping[self.key] = token_info
+
+    def delete_cached_token(self) -> None:
+        self.mapping.pop(self.key, None)
+
+
+def _cache_handler(
+    cache_handler: CacheHandler | MutableMapping[str, object] | None = None,
+) -> CacheHandler:
+    if cache_handler is None:
+        return CacheFileHandler(cache_path=str(config.TOKEN_CACHE_PATH))
+    if isinstance(cache_handler, MutableMapping):
+        return MappingCacheHandler(cache_handler)
+    return cache_handler
+
+
+def _get_cached_token(
+    cache_handler: CacheHandler | MutableMapping[str, object] | None = None,
+) -> dict | None:
+    return _cache_handler(cache_handler).get_cached_token()
+
+
+def _clear_cache(handler: CacheHandler) -> None:
+    if isinstance(handler, CacheFileHandler):
+        try:
+            os.remove(str(handler.cache_path))
+        except FileNotFoundError:
+            pass
+        return
+
+    delete = getattr(handler, "delete_cached_token", None)
+    if callable(delete):
+        delete()
+        return
+
+    logger.warning("Unable to clear Spotify token cache for handler %s", type(handler).__name__)
 
 
 def _required_scopes(scopes: str | None = None) -> set[str]:
@@ -36,61 +108,68 @@ def _token_is_valid_or_refreshable(token: dict | None) -> bool:
     return bool(token.get("refresh_token")) or token.get("expires_at", 0) > time.time()
 
 
-def _clear_cached_token_if_scope_mismatch(scopes: str | None = None) -> bool:
-    token = _get_cached_token()
+def _clear_cached_token_if_scope_mismatch(
+    cache_handler: CacheHandler | MutableMapping[str, object] | None = None,
+    scopes: str | None = None,
+) -> bool:
+    token = _get_cached_token(cache_handler)
     if token and not _token_has_required_scopes(token, scopes):
-        logout()
+        logout(cache_handler)
         return True
     return False
 
 
-def is_authenticated() -> bool:
+def is_authenticated(
+    cache_handler: CacheHandler | MutableMapping[str, object] | None = None,
+) -> bool:
     """True if a valid or refreshable token is cached (no network call)."""
     try:
-        token = _get_cached_token()
+        token = _get_cached_token(cache_handler)
         return _token_is_valid_or_refreshable(token) and _token_has_required_scopes(token)
     except Exception:
         return False
 
 
-def get_client_pkce() -> spotipy.Spotify:
+def get_client_pkce(
+    *,
+    cache_handler: CacheHandler | MutableMapping[str, object] | None = None,
+) -> spotipy.Spotify:
     """PKCE-based client — no client secret required. Used by the GUI."""
     if not config.SPOTIFY_CLIENT_ID:
-        raise RuntimeError(
-            "Missing SPOTIFY_CLIENT_ID. Add it to .env or bundle it in config.py."
-        )
-    _clear_cached_token_if_scope_mismatch()
+        raise RuntimeError(_missing_client_id_error())
+    handler = _cache_handler(cache_handler)
+    _clear_cached_token_if_scope_mismatch(handler)
     auth = SpotifyPKCE(
         client_id=config.SPOTIFY_CLIENT_ID,
         redirect_uri=config.SPOTIFY_REDIRECT_URI,
         scope=config.SPOTIFY_SCOPES,
-        cache_path=_TOKEN_CACHE,
+        cache_handler=handler,
         open_browser=True,
     )
     return spotipy.Spotify(auth_manager=auth)
 
 
-def logout() -> None:
+def logout(
+    cache_handler: CacheHandler | MutableMapping[str, object] | None = None,
+) -> None:
     """Remove the cached token so the next launch shows the login screen."""
-    try:
-        os.remove(_TOKEN_CACHE)
-    except FileNotFoundError:
-        pass
+    _clear_cache(_cache_handler(cache_handler))
 
 
-def get_client() -> spotipy.Spotify:
+def get_client(
+    *,
+    cache_handler: CacheHandler | MutableMapping[str, object] | None = None,
+) -> spotipy.Spotify:
     if not (config.SPOTIFY_CLIENT_ID and config.SPOTIFY_CLIENT_SECRET):
-        raise RuntimeError(
-            "Missing Spotify credentials. Copy .env.example to .env and fill in "
-            "SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET."
-        )
-    _clear_cached_token_if_scope_mismatch()
+        raise RuntimeError(_missing_client_credentials_error())
+    handler = _cache_handler(cache_handler)
+    _clear_cached_token_if_scope_mismatch(handler)
     auth = SpotifyOAuth(
         client_id=config.SPOTIFY_CLIENT_ID,
         client_secret=config.SPOTIFY_CLIENT_SECRET,
         redirect_uri=config.SPOTIFY_REDIRECT_URI,
         scope=config.SPOTIFY_SCOPES,
-        cache_path=_TOKEN_CACHE,
+        cache_handler=handler,
         open_browser=True,
     )
     return spotipy.Spotify(auth_manager=auth)

@@ -80,6 +80,55 @@ instantly. Use **Match: Any selected** (a track matching any ticked filter) or
 **All categories** (must satisfy each category you've touched). Requires a
 desktop session (it opens a real window).
 
+## Private desktop packaging (V1 groundwork)
+
+The desktop app can now be prepared for a private packaged build without
+shipping a `.env` file to testers:
+
+1. Copy `local_settings.example.py` to `local_settings.py`
+2. Fill in the shared Spotify / Last.fm values on **your** machine only
+3. Keep `local_settings.py` uncommitted (it is gitignored)
+4. Install PyInstaller in your env:
+
+   ```bash
+   conda activate Spotify
+   pip install pyinstaller
+   ```
+
+5. Build the GUI with the included `VibeThePlaylist.spec`
+
+PyInstaller builds for the **current OS only**, so create each package on that OS:
+
+### Windows
+
+```bash
+conda activate Spotify
+pyinstaller --clean VibeThePlaylist.spec
+```
+
+Output: `dist/VibeThePlaylist/VibeThePlaylist.exe`
+
+### macOS
+
+```bash
+conda activate Spotify
+pyinstaller --clean VibeThePlaylist.spec
+```
+
+Output: `dist/VibeThePlaylist.app`
+
+### Linux
+
+```bash
+conda activate Spotify
+pyinstaller --clean VibeThePlaylist.spec
+```
+
+Output: `dist/VibeThePlaylist/VibeThePlaylist`
+
+Packaged builds now store their writable state (DB, token cache, preview cache)
+under the user's OS app-data directory instead of the repository checkout.
+
 ## Re-running
 Everything is cached in `data/library.db`. Re-runs only fetch/enrich **newly
 liked** tracks. Playlist sync is **idempotent** — playlists are matched by name

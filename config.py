@@ -5,38 +5,204 @@ Everything you'll want to tune lives here. Edit GENRE_BUCKETS / VIBE_RULES freel
 from __future__ import annotations
 
 import os
+import sys
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
+import re
+from typing import Iterator
 
 from dotenv import load_dotenv
 
-load_dotenv()
+APP_NAME = "VibeThePlaylist"
+
+
+def _flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+PACKAGED_APP = bool(getattr(sys, "frozen", False)) or _flag("VIBETHEPLAYLIST_PACKAGED_APP")
+ROOT = Path(__file__).resolve().parent
+RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", ROOT))
+
+try:
+    import local_settings as _local_settings
+except ImportError:
+    _local_settings = None
+
+if not PACKAGED_APP:
+    load_dotenv(ROOT / ".env")
+
+
+def _path_from_env(name: str, default: Path) -> Path:
+    return Path(os.getenv(name, str(default))).expanduser()
+
+
+def _setting(name: str, default: str = "") -> str:
+    value = os.getenv(name)
+    if value is not None:
+        return value
+    if _local_settings is not None:
+        local_value = getattr(_local_settings, name, None)
+        if local_value is not None:
+            return str(local_value)
+    return default
+
+
+def _default_data_dir() -> Path:
+    if not PACKAGED_APP:
+        return ROOT / "data"
+    if os.name == "nt":
+        base_env = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA")
+        if base_env:
+            base = Path(base_env)
+        else:
+            base = Path.home() / "AppData" / "Local"
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.getenv("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+    return base / APP_NAME
+
+
+@dataclass(frozen=True)
+class RuntimePaths:
+    scope: str | None
+    data_dir: Path
+    cache_dir: Path
+    db_path: Path
+    token_cache_path: Path
+    preview_cache_path: Path
+
+
+def _sanitize_runtime_scope(scope: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", scope.strip()).strip("._-")
+    if not cleaned:
+        raise ValueError("Runtime scope must contain at least one filesystem-safe character.")
+    return cleaned
+
+
+def _scoped_path(path: Path, scope_dir: Path, *, base_data_dir: Path, is_dir: bool) -> Path:
+    try:
+        relative_path = path.relative_to(base_data_dir)
+    except ValueError:
+        if is_dir:
+            return path / "users" / scope_dir.name
+        return path.parent / "users" / scope_dir.name / path.name
+    return scope_dir / relative_path
+
+
+def _ensure_runtime_dirs(paths: RuntimePaths) -> RuntimePaths:
+    paths.data_dir.mkdir(parents=True, exist_ok=True)
+    paths.cache_dir.mkdir(parents=True, exist_ok=True)
+    paths.db_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.token_cache_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.preview_cache_path.parent.mkdir(parents=True, exist_ok=True)
+    return paths
+
 
 # --- Paths ---
-ROOT = Path(__file__).resolve().parent
-DATA_DIR = ROOT / "data"
-DATA_DIR.mkdir(exist_ok=True)
-DB_PATH = DATA_DIR / "library.db"
-TAXONOMY_PATH = Path(os.getenv("TAXONOMY_PATH", ROOT / "genreclass" / "taxonomy.json"))
+DATA_DIR = _path_from_env("VIBETHEPLAYLIST_DATA_DIR", _default_data_dir())
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR = _path_from_env("VIBETHEPLAYLIST_CACHE_DIR", DATA_DIR / "cache")
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = _path_from_env("VIBETHEPLAYLIST_DB_PATH", DATA_DIR / "library.db")
+TOKEN_CACHE_PATH = _path_from_env("VIBETHEPLAYLIST_TOKEN_CACHE_PATH", DATA_DIR / ".spotify_token_cache")
+PREVIEW_CACHE_PATH = _path_from_env("VIBETHEPLAYLIST_PREVIEW_CACHE_PATH", CACHE_DIR / "preview.mp3")
+TAXONOMY_PATH = _path_from_env("TAXONOMY_PATH", RESOURCE_ROOT / "genreclass" / "taxonomy.json")
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+PREVIEW_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+_DEFAULT_RUNTIME_PATHS = RuntimePaths(
+    scope=None,
+    data_dir=DATA_DIR,
+    cache_dir=CACHE_DIR,
+    db_path=DB_PATH,
+    token_cache_path=TOKEN_CACHE_PATH,
+    preview_cache_path=PREVIEW_CACHE_PATH,
+)
 
-# --- Credentials (from .env) ---
-SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "")
-SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "")
-SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
-LASTFM_API_KEY = os.getenv("LASTFM_API_KEY", "")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+def runtime_paths_for_scope(scope: str) -> RuntimePaths:
+    safe_scope = _sanitize_runtime_scope(scope)
+    scope_dir = _DEFAULT_RUNTIME_PATHS.data_dir / "users" / safe_scope
+    return _ensure_runtime_dirs(
+        RuntimePaths(
+            scope=safe_scope,
+            data_dir=scope_dir,
+            cache_dir=_scoped_path(
+                _DEFAULT_RUNTIME_PATHS.cache_dir,
+                scope_dir,
+                base_data_dir=_DEFAULT_RUNTIME_PATHS.data_dir,
+                is_dir=True,
+            ),
+            db_path=_scoped_path(
+                _DEFAULT_RUNTIME_PATHS.db_path,
+                scope_dir,
+                base_data_dir=_DEFAULT_RUNTIME_PATHS.data_dir,
+                is_dir=False,
+            ),
+            token_cache_path=_scoped_path(
+                _DEFAULT_RUNTIME_PATHS.token_cache_path,
+                scope_dir,
+                base_data_dir=_DEFAULT_RUNTIME_PATHS.data_dir,
+                is_dir=False,
+            ),
+            preview_cache_path=_scoped_path(
+                _DEFAULT_RUNTIME_PATHS.preview_cache_path,
+                scope_dir,
+                base_data_dir=_DEFAULT_RUNTIME_PATHS.data_dir,
+                is_dir=False,
+            ),
+        )
+    )
+
+
+def _apply_runtime_paths(paths: RuntimePaths) -> None:
+    global DATA_DIR, CACHE_DIR, DB_PATH, TOKEN_CACHE_PATH, PREVIEW_CACHE_PATH
+    DATA_DIR = paths.data_dir
+    CACHE_DIR = paths.cache_dir
+    DB_PATH = paths.db_path
+    TOKEN_CACHE_PATH = paths.token_cache_path
+    PREVIEW_CACHE_PATH = paths.preview_cache_path
+
+
+@contextmanager
+def using_runtime_scope(scope: str) -> Iterator[RuntimePaths]:
+    previous = RuntimePaths(
+        scope=None,
+        data_dir=DATA_DIR,
+        cache_dir=CACHE_DIR,
+        db_path=DB_PATH,
+        token_cache_path=TOKEN_CACHE_PATH,
+        preview_cache_path=PREVIEW_CACHE_PATH,
+    )
+    scoped = runtime_paths_for_scope(scope)
+    _apply_runtime_paths(scoped)
+    try:
+        yield scoped
+    finally:
+        _apply_runtime_paths(previous)
+
+# --- Credentials (from env or optional local_settings.py) ---
+SPOTIFY_CLIENT_ID = _setting("SPOTIFY_CLIENT_ID")
+SPOTIFY_CLIENT_SECRET = _setting("SPOTIFY_CLIENT_SECRET")
+SPOTIFY_REDIRECT_URI = _setting("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
+LASTFM_API_KEY = _setting("LASTFM_API_KEY")
+ANTHROPIC_API_KEY = _setting("ANTHROPIC_API_KEY")
 
 # --- Genre-specification feature (genre/subgenre/energy/vibe via ISRC) ------
 # Numeric audio features come from ReccoBeats only (Spotify audio-features is
 # deprecated / 403 for new apps — never call it). Deezer supplies a 30s preview
 # clip for the ReccoBeats extraction fallback. Neither needs a key today; a key
 # slot is provided for ReccoBeats in case they gate the API later.
-RECCOBEATS_BASE_URL = os.getenv("RECCOBEATS_BASE_URL", "https://api.reccobeats.com")
-RECCOBEATS_API_KEY = os.getenv("RECCOBEATS_API_KEY", "")  # usually blank (free)
-DEEZER_BASE_URL = os.getenv("DEEZER_BASE_URL", "https://api.deezer.com")
+RECCOBEATS_BASE_URL = _setting("RECCOBEATS_BASE_URL", "https://api.reccobeats.com")
+RECCOBEATS_API_KEY = _setting("RECCOBEATS_API_KEY", "")  # usually blank (free)
+DEEZER_BASE_URL = _setting("DEEZER_BASE_URL", "https://api.deezer.com")
 
 # Claude model used by the genre-specification classifier. Swappable via env so
 # another model can be A/B tested without touching code.
-CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "claude-haiku-4-5")
+CLASSIFIER_MODEL = _setting("CLASSIFIER_MODEL", "claude-haiku-4-5")
 
 # The canonical energy enum (ENERGY_LEVELS) is derived from ENERGY_BANDS below,
 # which is the single source of truth for both the cut points and the labels.

@@ -398,12 +398,11 @@ def row_matches(row: dict, inc: dict, exc: dict, any_modes: dict[str, bool]) -> 
 # Preview player (unchanged logic; callback posted to main thread by caller)
 # ---------------------------------------------------------------------------
 
-_PREVIEW_CACHE = str(config.DATA_DIR / ".preview_cache.mp3")
-
 
 class _PreviewPlayer:
     def __init__(self):
         self.playing_id: str | None = None
+        config.PREVIEW_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         try:
             import pygame
             pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=1024)
@@ -440,14 +439,15 @@ class _PreviewPlayer:
 
     def _fetch_and_play(self, track_id: str, url: str, on_change) -> None:
         try:
+            cache_path = config.PREVIEW_CACHE_PATH
             with urllib.request.urlopen(url, timeout=10) as resp:
                 data = resp.read()
             if self.playing_id != track_id:
                 return
             self._pg.mixer.music.stop()
-            with open(_PREVIEW_CACHE, "wb") as f:
+            with open(cache_path, "wb") as f:
                 f.write(data)
-            self._pg.mixer.music.load(_PREVIEW_CACHE)
+            self._pg.mixer.music.load(str(cache_path))
             self._pg.mixer.music.play()
             while self._pg.mixer.music.get_busy() and self.playing_id == track_id:
                 time.sleep(0.1)
