@@ -70,6 +70,9 @@ DB_PATH = _path_from_env("VIBETHEPLAYLIST_DB_PATH", DATA_DIR / "library.db")
 TOKEN_CACHE_PATH = _path_from_env("VIBETHEPLAYLIST_TOKEN_CACHE_PATH", DATA_DIR / ".spotify_token_cache")
 PREVIEW_CACHE_PATH = _path_from_env("VIBETHEPLAYLIST_PREVIEW_CACHE_PATH", CACHE_DIR / "preview.mp3")
 TAXONOMY_PATH = _path_from_env("TAXONOMY_PATH", RESOURCE_ROOT / "genreclass" / "taxonomy.json")
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+PREVIEW_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 # --- Credentials (from env or optional local_settings.py) ---
 SPOTIFY_CLIENT_ID = _setting("SPOTIFY_CLIENT_ID")

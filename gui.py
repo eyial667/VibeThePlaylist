@@ -402,6 +402,7 @@ def row_matches(row: dict, inc: dict, exc: dict, any_modes: dict[str, bool]) -> 
 class _PreviewPlayer:
     def __init__(self):
         self.playing_id: str | None = None
+        config.PREVIEW_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         try:
             import pygame
             pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=1024)
@@ -443,7 +444,6 @@ class _PreviewPlayer:
             if self.playing_id != track_id:
                 return
             self._pg.mixer.music.stop()
-            config.PREVIEW_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
             with open(config.PREVIEW_CACHE_PATH, "wb") as f:
                 f.write(data)
             self._pg.mixer.music.load(str(config.PREVIEW_CACHE_PATH))
