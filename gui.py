@@ -628,14 +628,13 @@ class FilterPanel(QGroupBox):
 
         bar = QHBoxLayout()
         bar.setSpacing(6)
-        self.mode_btn = QPushButton("Showing")
+        self.mode_btn = QPushButton("Include")
         self.mode_btn.setObjectName("showing")
         self.mode_btn.setFixedWidth(74)
         self.mode_btn.clicked.connect(self._flip_mode)
         self.count_lbl = QLabel("")
         self.count_lbl.setStyleSheet("color: #888; font-size: 11px;")
         clear_btn = QPushButton("Clear")
-        clear_btn.setFixedWidth(50)
         clear_btn.clicked.connect(self.clear)
         bar.addWidget(self.mode_btn)
         bar.addWidget(self.count_lbl)
@@ -685,10 +684,10 @@ class FilterPanel(QGroupBox):
     def _flip_mode(self) -> None:
         self.sel.flip_mode()
         if self.sel.mode == INCLUDE:
-            self.mode_btn.setText("Showing")
+            self.mode_btn.setText("Include")
             self.mode_btn.setObjectName("showing")
         else:
-            self.mode_btn.setText("Hiding")
+            self.mode_btn.setText("Exclude")
             self.mode_btn.setObjectName("hiding")
         self.mode_btn.style().unpolish(self.mode_btn)
         self.mode_btn.style().polish(self.mode_btn)
@@ -714,7 +713,7 @@ class FilterPanel(QGroupBox):
         self.list_widget.blockSignals(False)
         if self.sel.mode == EXCLUDE:
             self.sel.flip_mode()
-            self.mode_btn.setText("Showing")
+            self.mode_btn.setText("Include")
             self.mode_btn.setObjectName("showing")
             self.mode_btn.style().unpolish(self.mode_btn)
             self.mode_btn.style().polish(self.mode_btn)
@@ -835,13 +834,42 @@ class LibraryWidget(QWidget):
         self._sync_worker: _SyncWorker | None       = None
         self._playlist_worker: _PlaylistWorker | None = None
 
-        root = QVBoxLayout(self)
+        root = QHBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 10)
-        root.setSpacing(10)
+        root.setSpacing(12)
 
-        # ── filter tabs ────────────────────────────────────────────────────
+        # ── left: track table + status ──────────────────────────────────────
+        self.model = TrackTableModel()
+        self.table = QTableView()
+        self.table.setModel(self.model)
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setShowGrid(False)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(36)
+        self.table.horizontalHeader().setHighlightSections(False)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        for i, w in enumerate(_COL_WIDTHS):
+            self.table.setColumnWidth(i, w)
+        self.table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Fixed)
+
+        self.table.doubleClicked.connect(self._on_double_click)
+
+        self.status_lbl = QLabel("")
+        self.status_lbl.setStyleSheet("color: #888; font-size: 12px; padding: 2px 0;")
+
+        left = QVBoxLayout()
+        left.setSpacing(6)
+        left.addWidget(self.table)
+        left.addWidget(self.status_lbl)
+
+        # ── right: filters + controls ───────────────────────────────────────
         tabs = QTabWidget()
-        tabs.setMaximumHeight(270)
 
         # Tab 1 — Genre
         g = QWidget()
@@ -867,7 +895,7 @@ class LibraryWidget(QWidget):
         self.vibe_panel.changed.connect(self.refresh)
         tabs.addTab(v, "Vibe")
 
-        # Tab 2 — Artists
+        # Tab 3 — Artists
         ar = QWidget()
         ar_layout = QHBoxLayout(ar)
         ar_layout.setContentsMargins(12, 8, 12, 8)
@@ -876,7 +904,7 @@ class LibraryWidget(QWidget):
         self.artist_panel.changed.connect(self.refresh)
         tabs.addTab(ar, "Artists")
 
-        # Tab 3 — Albums
+        # Tab 4 — Albums
         al = QWidget()
         al_layout = QHBoxLayout(al)
         al_layout.setContentsMargins(12, 8, 12, 8)
@@ -885,15 +913,17 @@ class LibraryWidget(QWidget):
         self.album_panel.changed.connect(self.refresh)
         tabs.addTab(al, "Albums")
 
-        root.addWidget(tabs)
-
         # ── controls bar ────────────────────────────────────────────────────
-        bar = QHBoxLayout()
-        bar.setSpacing(8)
+        self.search_box = QLineEdit()
+        self.search_box.setPlaceholderText("Search songs or artists…")
+        self.search_box.textChanged.connect(self.refresh)
+
+        self.count_lbl = QLabel("")
+        self.count_lbl.setStyleSheet("font-weight: 600; font-size: 13px; color: #555;")
 
         self.reset_btn    = QPushButton("Reset filters")
         self.refresh_btn  = QPushButton("Refresh library")
-        self.playlist_btn = QPushButton("Save as Spotify playlist…")
+        self.playlist_btn = QPushButton("Save as playlist…")
         self.logout_btn   = QPushButton("Log out")
 
         self.reset_btn.clicked.connect(self._reset_filters)
@@ -901,51 +931,23 @@ class LibraryWidget(QWidget):
         self.playlist_btn.clicked.connect(self._create_playlist)
         self.logout_btn.clicked.connect(self._logout)
 
-        bar.addWidget(self.reset_btn)
-        bar.addWidget(self.refresh_btn)
-        bar.addWidget(self.playlist_btn)
-        bar.addWidget(self.logout_btn)
-        bar.addStretch()
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addWidget(self.reset_btn)
+        btn_row.addWidget(self.refresh_btn)
+        btn_row.addWidget(self.playlist_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(self.logout_btn)
 
-        self.count_lbl = QLabel("")
-        self.count_lbl.setStyleSheet("font-weight: 600; font-size: 13px; color: #555;")
-        bar.addWidget(self.count_lbl)
+        right = QVBoxLayout()
+        right.setSpacing(8)
+        right.addWidget(self.search_box)
+        right.addWidget(self.count_lbl)
+        right.addWidget(tabs)
+        right.addLayout(btn_row)
 
-        self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("Search songs or artists…")
-        self.search_box.setMinimumWidth(230)
-        self.search_box.textChanged.connect(self.refresh)
-        bar.addWidget(self.search_box)
-
-        root.addLayout(bar)
-
-        # ── track table ─────────────────────────────────────────────────────
-        self.model = TrackTableModel()
-        self.table = QTableView()
-        self.table.setModel(self.model)
-        self.table.setAlternatingRowColors(True)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(False)
-        self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(36)
-        self.table.horizontalHeader().setHighlightSections(False)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-
-        for i, w in enumerate(_COL_WIDTHS):
-            self.table.setColumnWidth(i, w)
-        self.table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Fixed)
-
-        self.table.doubleClicked.connect(self._on_double_click)
-        root.addWidget(self.table)
-
-        # ── status bar ───────────────────────────────────────────────────────
-        self.status_lbl = QLabel("")
-        self.status_lbl.setStyleSheet("color: #888; font-size: 12px; padding: 2px 0;")
-        root.addWidget(self.status_lbl)
+        root.addLayout(left, 3)
+        root.addLayout(right, 2)
 
         # ── cross-filter maps ────────────────────────────────────────────────
         self.artist_albums: dict[str, set[str]] = {}
