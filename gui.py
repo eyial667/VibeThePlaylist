@@ -132,7 +132,9 @@ def _make_mode_button(parent, sel, on_flip):
 def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
     """Pure filter test. `inc`/`exc` map category keys (g,v,e,m,ar,al) to sets of
     included/excluded values. Excludes are hard (any hit removes the row);
-    includes combine via any_mode (Any selected) or all (All categories)."""
+    includes combine via any_mode (Any=OR) or all (AND). In AND mode, multi-value
+    categories (genres, subgenres, vibes, moods) require ALL selected values to be
+    present on the track, not just one."""
     if exc["g"] & set(row["genres"]):
         return False
     if exc["sg"] & set(row["subgenres"]):
@@ -148,23 +150,42 @@ def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
     if row["album"] in exc["al"]:
         return False
     checks = []
-    if inc["g"]:
-        checks.append(bool(inc["g"] & set(row["genres"])))
-    if inc["sg"]:
-        checks.append(bool(inc["sg"] & set(row["subgenres"])))
-    if inc["v"]:
-        checks.append(bool(inc["v"] & set(row["vibes"])))
-    if inc["e"]:
-        checks.append(row["energy"] in inc["e"])
-    if inc["m"]:
-        checks.append(bool(inc["m"] & set(row["moods"])))
-    if inc["ar"]:
-        checks.append(row["artist"] in inc["ar"])
-    if inc["al"]:
-        checks.append(row["album"] in inc["al"])
-    if not checks:
-        return True  # nothing included -> keep (subject to excludes above)
-    return any(checks) if any_mode else all(checks)
+    if any_mode:
+        if inc["g"]:
+            checks.append(bool(inc["g"] & set(row["genres"])))
+        if inc["sg"]:
+            checks.append(bool(inc["sg"] & set(row["subgenres"])))
+        if inc["v"]:
+            checks.append(bool(inc["v"] & set(row["vibes"])))
+        if inc["e"]:
+            checks.append(row["energy"] in inc["e"])
+        if inc["m"]:
+            checks.append(bool(inc["m"] & set(row["moods"])))
+        if inc["ar"]:
+            checks.append(row["artist"] in inc["ar"])
+        if inc["al"]:
+            checks.append(row["album"] in inc["al"])
+        if not checks:
+            return True
+        return any(checks)
+    else:
+        if inc["g"]:
+            checks.append(inc["g"] <= set(row["genres"]))
+        if inc["sg"]:
+            checks.append(inc["sg"] <= set(row["subgenres"]))
+        if inc["v"]:
+            checks.append(inc["v"] <= set(row["vibes"]))
+        if inc["e"]:
+            checks.append(row["energy"] in inc["e"])
+        if inc["m"]:
+            checks.append(inc["m"] <= set(row["moods"]))
+        if inc["ar"]:
+            checks.append(row["artist"] in inc["ar"])
+        if inc["al"]:
+            checks.append(row["album"] in inc["al"])
+        if not checks:
+            return True
+        return all(checks)
 
 
 class CheckGroup(ttk.LabelFrame):
