@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(SPECPATH).resolve()
 ICON_ICO = ROOT / "assets" / "app.ico"
 ICON_ICNS = ROOT / "assets" / "app.icns"
 
