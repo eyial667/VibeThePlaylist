@@ -1,4 +1,5 @@
 import importlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -88,11 +89,11 @@ def test_runtime_paths_for_scope_stays_under_data_dir(monkeypatch, tmp_path):
     assert paths.token_cache_path == paths.data_dir / ".spotify_token_cache"
     assert paths.preview_cache_path == paths.data_dir / "cache" / "preview.mp3"
     _assert_parent_dirs_are_writable(module)
-    _assert_parent_dirs_are_writable(type("ScopedConfig", (), {
-        "DB_PATH": paths.db_path,
-        "TOKEN_CACHE_PATH": paths.token_cache_path,
-        "PREVIEW_CACHE_PATH": paths.preview_cache_path,
-    }))
+    _assert_parent_dirs_are_writable(SimpleNamespace(
+        DB_PATH=paths.db_path,
+        TOKEN_CACHE_PATH=paths.token_cache_path,
+        PREVIEW_CACHE_PATH=paths.preview_cache_path,
+    ))
 
 
 def test_runtime_paths_for_scope_respects_explicit_file_overrides(monkeypatch, tmp_path):
