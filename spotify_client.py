@@ -71,6 +71,26 @@ def _get_cached_token(
     return _cache_handler(cache_handler).get_cached_token()
 
 
+def _clear_cache(handler: CacheHandler) -> None:
+    cache_path = getattr(handler, "cache_path", None)
+    if cache_path:
+        try:
+            os.remove(str(cache_path))
+        except FileNotFoundError:
+            pass
+        return
+
+    delete = getattr(handler, "delete_cached_token", None)
+    if callable(delete):
+        delete()
+        return
+
+    try:
+        handler.save_token_to_cache(None)
+    except Exception:
+        pass
+
+
 def _required_scopes(scopes: str | None = None) -> set[str]:
     raw = scopes if scopes is not None else config.SPOTIFY_SCOPES
     return {scope for scope in raw.split() if scope}
@@ -134,22 +154,7 @@ def logout(
     cache_handler: CacheHandler | MutableMapping[str, object] | None = None,
 ) -> None:
     """Remove the cached token so the next launch shows the login screen."""
-    handler = _cache_handler(cache_handler)
-    cache_path = getattr(handler, "cache_path", None)
-    if cache_path:
-        try:
-            os.remove(str(cache_path))
-        except FileNotFoundError:
-            pass
-        return
-    delete = getattr(handler, "delete_cached_token", None)
-    if callable(delete):
-        delete()
-        return
-    try:
-        handler.save_token_to_cache(None)
-    except Exception:
-        pass
+    _clear_cache(_cache_handler(cache_handler))
 
 
 def get_client(
