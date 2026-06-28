@@ -43,6 +43,16 @@ def test_is_authenticated_accepts_injected_mapping_cache():
     assert spotify_client.is_authenticated(store)
 
 
+def test_is_authenticated_rejects_expired_injected_mapping_cache_without_refresh():
+    store = {
+        "spotify_token_info": {
+            "scope": "user-library-read playlist-modify-public playlist-modify-private",
+            "expires_at": time.time() - 60,
+        }
+    }
+    assert not spotify_client.is_authenticated(store)
+
+
 def test_clear_cached_token_if_scope_mismatch_logs_out(monkeypatch):
     token = {"scope": "user-library-read"}
     called = {"logout": 0}

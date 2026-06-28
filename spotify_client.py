@@ -75,10 +75,9 @@ def _get_cached_token(
 
 
 def _clear_cache(handler: CacheHandler) -> None:
-    cache_path = getattr(handler, "cache_path", None)
-    if cache_path:
+    if isinstance(handler, CacheFileHandler):
         try:
-            os.remove(str(cache_path))
+            os.remove(str(handler.cache_path))
         except FileNotFoundError:
             pass
         return
