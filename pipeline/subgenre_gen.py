@@ -21,7 +21,7 @@ from pathlib import Path
 import config
 
 MODEL = "claude-sonnet-4-6"  # supports the web_search_20260209 server tool
-GENERATED_PATH = config.ROOT / "subgenres_generated.py"
+GENERATED_PATH = config.ROOT / "pipeline" / "subgenres_generated.py"
 
 _SYSTEM = (
     "You are a music taxonomy assistant. You research music genres and return "

@@ -1,6 +1,6 @@
 """Tests for Last.fm tag parsing and fallback logic (network mocked)."""
 import config
-import enrich
+from pipeline import enrich
 
 
 def _payload(tags):

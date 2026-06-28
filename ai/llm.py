@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 import config
 import db
-import text_utils
+from utils import text_utils
 
 MODEL = "claude-haiku-4-5-20251001"  # cheap + fast; fine for tagging
 

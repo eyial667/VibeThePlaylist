@@ -19,7 +19,7 @@ import requests
 
 import config
 import db
-import text_utils
+from utils import text_utils
 
 SRC_LOOKUP = "reccobeats_lookup"
 SRC_EXTRACTED = "reccobeats_extracted"

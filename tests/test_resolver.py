@@ -1,5 +1,5 @@
 """Identifier resolution -> ISRC across all three input types, with name variants."""
-import text_utils as tu
+from utils import text_utils as tu
 from fakes import FakeMetadataProvider, load_fixture
 from genreclass.resolver import IdentifierResolver
 

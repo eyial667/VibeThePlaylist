@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import pathlib
 
-import text_utils
+from utils import text_utils
 from genreclass.classifier import Classification, Classifier
 from genreclass.providers import (SRC_EXTRACTED, SRC_LOOKUP, FeatureProvider,
                        MetadataProvider)

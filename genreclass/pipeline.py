@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 import config
 import db
-import text_utils
+from utils import text_utils
 
 from . import providers as P
 from .classifier import Classifier, HaikuClassifier, energy_from_features

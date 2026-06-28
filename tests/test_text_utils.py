@@ -1,5 +1,5 @@
 """Text-normalization robustness across American / European / Latin titles."""
-import text_utils as tu
+from utils import text_utils as tu
 
 
 def test_fold_accents_across_regions():

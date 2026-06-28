@@ -316,7 +316,7 @@ def _merge_subgenres(
 
 
 try:
-    from subgenres_generated import GENERATED_SUBGENRES as _GENERATED_SUBGENRES
+    from pipeline.subgenres_generated import GENERATED_SUBGENRES as _GENERATED_SUBGENRES
 except Exception:  # overlay is optional; absence just means no generated extras
     _GENERATED_SUBGENRES = {}
 
