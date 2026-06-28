@@ -100,6 +100,7 @@ def test_create_named_playlist_retries_with_ascii_prefix_on_invalid_request(temp
     full = playlists.create_named_playlist(sp, "Chill", ["t1"])
     assert full == "VibeThePlaylist - Chill"
     assert sp.created[full]
+    assert sp.items[sp.created[full]] == ["spotify:track:t1"]
 
 
 def test_create_named_playlist_updates_existing_ascii_fallback(temp_db, fake_spotify):

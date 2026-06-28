@@ -54,15 +54,28 @@ def _spotify_error_detail(exc: spotipy.SpotifyException) -> str:
     return " ".join(parts).strip()
 
 
+def _is_permission_error(exc: spotipy.SpotifyException, detail_lc: str) -> bool:
+    return (
+        exc.http_status == 403
+        or exc.code == "insufficient_scope"
+        or "scope" in detail_lc
+        or "permission" in detail_lc
+    )
+
+
+def _is_invalid_request(exc: spotipy.SpotifyException) -> bool:
+    return exc.http_status == 400 or exc.code == "invalid_request"
+
+
 def _playlist_error_message(exc: spotipy.SpotifyException) -> str:
-    detail = _spotify_error_detail(exc).lower()
+    detail_lc = _spotify_error_detail(exc).lower()
     if exc.http_status == 429:
         return "Spotify is rate-limiting playlist changes. Wait a minute, then try again."
-    if exc.http_status == 401 or "token" in detail:
+    if exc.http_status == 401 or "token" in detail_lc:
         return "Spotify rejected your login. Log out, sign back in, and try again."
-    if exc.http_status == 403 or exc.code == "insufficient_scope" or "scope" in detail or "permission" in detail:
+    if _is_permission_error(exc, detail_lc):
         return "Spotify did not grant playlist-edit access. Log out, sign back in, and approve playlist permissions."
-    if exc.http_status == 400 or exc.code == "invalid_request":
+    if _is_invalid_request(exc):
         return "Spotify rejected the playlist request. Try a shorter playlist name using letters, numbers, and spaces only."
     return "Spotify could not save the playlist right now. Please try again."
 
@@ -71,7 +84,7 @@ def _should_retry_with_ascii_name(exc: spotipy.SpotifyException, name: str, fall
     return (
         fallback != name
         and not name.isascii()
-        and (exc.http_status == 400 or exc.code == "invalid_request")
+        and _is_invalid_request(exc)
     )
 
 
