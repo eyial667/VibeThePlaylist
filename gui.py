@@ -415,14 +415,15 @@ class _PreviewPlayer:
 # Pipeline runner (unchanged)
 # ---------------------------------------------------------------------------
 
-def _run_pipeline(status_cb) -> None:
+def _run_pipeline(status_cb, sp=None) -> None:
     import classify
     import enrich
     import spotify_client as spc
 
     db.init()
     status_cb("Connecting to Spotify…")
-    sp = spc.get_client_pkce()
+    if sp is None:
+        sp = spc.get_client_pkce()
 
     status_cb("Fetching liked songs…")
     known = db.all_track_ids()
@@ -491,9 +492,13 @@ class _SyncWorker(QThread):
     finished       = pyqtSignal()
     failed         = pyqtSignal(str)
 
+    def __init__(self, sp=None):
+        super().__init__()
+        self._sp = sp
+
     def run(self) -> None:
         try:
-            _run_pipeline(lambda msg: self.status_changed.emit(msg))
+            _run_pipeline(lambda msg: self.status_changed.emit(msg), sp=self._sp)
             self.finished.emit()
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -503,16 +508,17 @@ class _PlaylistWorker(QThread):
     finished = pyqtSignal(str)
     failed   = pyqtSignal(str)
 
-    def __init__(self, name: str, track_ids: list[str]):
+    def __init__(self, name: str, track_ids: list[str], sp=None):
         super().__init__()
         self._name      = name
         self._track_ids = track_ids
+        self._sp        = sp
 
     def run(self) -> None:
         try:
             import playlists
             import spotify_client as spc
-            sp   = spc.get_client_pkce()
+            sp   = self._sp or spc.get_client_pkce()
             full = playlists.create_named_playlist(sp, self._name, self._track_ids)
             self.finished.emit(full)
         except Exception as exc:
@@ -918,6 +924,7 @@ class LibraryWidget(QWidget):
         super().__init__(parent)
         self._player          = _PreviewPlayer()
         self.rows: list[dict] = []
+        self._sp              = None   # shared Spotify client; set by MainWindow
         self._sync_worker: _SyncWorker | None       = None
         self._playlist_worker: _PlaylistWorker | None = None
 
@@ -1212,7 +1219,7 @@ class LibraryWidget(QWidget):
 
     def _run_sync(self) -> None:
         dlg    = SyncDialog(self)
-        worker = _SyncWorker()
+        worker = _SyncWorker(sp=self._sp)
         worker.status_changed.connect(dlg.set_status)
         worker.finished.connect(dlg.accept)
         worker.failed.connect(
@@ -1252,7 +1259,7 @@ class LibraryWidget(QWidget):
         if not ok or not name.strip():
             return
         self.playlist_btn.setEnabled(False)
-        worker = _PlaylistWorker(name.strip(), [r["id"] for r in to_save])
+        worker = _PlaylistWorker(name.strip(), [r["id"] for r in to_save], sp=self._sp)
         worker.finished.connect(lambda full: (
             self.playlist_btn.setEnabled(True),
             QMessageBox.information(
@@ -1306,12 +1313,15 @@ class MainWindow(QMainWindow):
 
         import spotify_client as spc
         if spc.is_authenticated():
+            self._library._sp = spc.get_client_pkce()
             self._library.load()
             self._stack.setCurrentWidget(self._library)
         else:
             self._stack.setCurrentWidget(self._login)
 
     def _on_login_success(self) -> None:
+        import spotify_client as spc
+        self._library._sp = spc.get_client_pkce()
         self._library.load()
         self._stack.setCurrentWidget(self._library)
         QTimer.singleShot(150, self._library.offer_initial_sync)
