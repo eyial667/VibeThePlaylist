@@ -9,10 +9,11 @@ Hip-hop/Rap genres but flip the Artists section to EXCLUDE a given artist). Excl
 are hard filters; includes combine via the Any/All match mode. The table updates
 live as you click.
 
+On first launch (or after logout) a login screen is shown; clicking "Connect to
+Spotify" opens the browser for OAuth and returns automatically.
+
     conda activate Spotify
     python gui.py
-
-Requires that you've already built the library:  python cli.py all
 """
 from __future__ import annotations
 
@@ -400,6 +401,10 @@ class App(ttk.Frame):
         controls.pack(fill="x", pady=8)
         ttk.Button(controls, text="Clear all filters",
                    command=self.clear_all).pack(side="left")
+        ttk.Button(controls, text="Sync library",
+                   command=self._sync).pack(side="left", padx=(8, 0))
+        ttk.Button(controls, text="Log out",
+                   command=self._logout).pack(side="left", padx=(8, 0))
         self.create_btn = ttk.Button(controls, text="Create Spotify playlist…",
                                       command=self.create_playlist)
         self.create_btn.pack(side="left", padx=(8, 0))
@@ -434,13 +439,21 @@ class App(ttk.Frame):
         self.tree.pack(side="left", fill="both", expand=True)
         vsb.pack(side="left", fill="y")
 
-        if not self.rows:
-            messagebox.showinfo(
-                "No data yet",
-                "No classified tracks found.\n\nRun this first:\n"
-                "    conda activate Spotify\n    python cli.py all",
-            )
         self.refresh()
+
+    # --- sync / logout -----------------------------------------------------
+    def _sync(self) -> None:
+        _offer_sync(self.winfo_toplevel(), self)
+
+    def _logout(self) -> None:
+        if not messagebox.askyesno("Log out", "Disconnect your Spotify account?"):
+            return
+        import spotify_client as spc
+        spc.logout()
+        root = self.winfo_toplevel()
+        for w in root.winfo_children():
+            w.destroy()
+        LoginFrame(root, on_success=lambda: _relaunch(root))
 
     # --- filtering ---------------------------------------------------------
     def clear_all(self) -> None:
@@ -674,11 +687,175 @@ class App(ttk.Frame):
         messagebox.showinfo("Library classified", "\n".join(stats.summary_lines()))
 
 
+def _relaunch(root: tk.Tk) -> None:
+    for w in root.winfo_children():
+        w.destroy()
+    app = App(root)
+    root.after(100, lambda: _offer_sync(root, app))
+
+
+class LoginFrame(ttk.Frame):
+    """Shown on first launch or after logout. Guides the user through OAuth."""
+
+    def __init__(self, master, on_success):
+        super().__init__(master, padding=40)
+        self.on_success = on_success
+        self.pack(fill="both", expand=True)
+
+        ttk.Label(self, text="VibeThePlaylist",
+                  font=("TkDefaultFont", 28, "bold")).pack(pady=(80, 10))
+        ttk.Label(self, text="Browse and playlist your Spotify library by genre, energy, and vibe.",
+                  font=("TkDefaultFont", 12)).pack(pady=(0, 50))
+
+        self.connect_btn = ttk.Button(self, text="Connect to Spotify", command=self._connect)
+        self.connect_btn.pack(ipadx=24, ipady=10)
+
+        self.status_var = tk.StringVar()
+        ttk.Label(self, textvariable=self.status_var,
+                  foreground="gray40").pack(pady=(14, 0))
+
+    def _connect(self) -> None:
+        self.connect_btn.config(state="disabled")
+        self.status_var.set("Opening browser — please log in to Spotify…")
+        threading.Thread(target=self._auth_worker, daemon=True).start()
+
+    def _auth_worker(self) -> None:
+        try:
+            import spotify_client as spc
+            sp = spc.get_client_pkce()
+            sp.current_user()  # forces the token exchange
+            self.after(0, self.on_success)
+        except Exception as exc:  # noqa: BLE001
+            self.after(0, lambda: self._failed(str(exc)))
+
+    def _failed(self, msg: str) -> None:
+        self.connect_btn.config(state="normal")
+        self.status_var.set(f"Connection failed: {msg}")
+
+
+# ---------------------------------------------------------------------------
+# Pipeline runner (fetch → enrich → classify) called from the GUI
+# ---------------------------------------------------------------------------
+
+def _run_pipeline(status_cb) -> None:
+    """Run the full sync pipeline on the caller's thread (must be a worker thread)."""
+    import classify
+    import db
+    import enrich
+    import spotify_client as spc
+
+    db.init()
+    status_cb("Connecting to Spotify…")
+    sp = spc.get_client_pkce()
+
+    status_cb("Fetching liked songs…")
+    known = db.all_track_ids()
+    new = [t for t in spc.iter_liked_tracks(sp) if t["id"] not in known]
+    db.upsert_tracks(new)
+
+    status_cb("Enriching: artist genres…")
+    caps = spc.probe_capabilities(sp)
+    db.set_meta("audio_features_available", "1" if caps["audio_features"] else "0")
+    need_artists = sorted(db.all_artist_ids() - db.known_artist_ids())
+    if need_artists:
+        db.upsert_artists(spc.fetch_artists(sp, need_artists))
+
+    if caps["audio_features"]:
+        missing = sorted(db.track_ids_missing_features())
+        if missing:
+            status_cb(f"Fetching audio features for {len(missing)} tracks…")
+            db.upsert_features(spc.fetch_audio_features(sp, missing))
+
+    if enrich.has_lastfm():
+        missing = sorted(db.track_ids_missing_tags())
+        if missing:
+            status_cb(f"Fetching Last.fm tags for {len(missing)} tracks…")
+            with db.connect() as conn:
+                meta = {
+                    r["id"]: (r["artist_name"], r["name"])
+                    for r in conn.execute("SELECT id, artist_name, name FROM tracks")
+                    if r["id"] in missing
+                }
+            rows = []
+            for tid in missing:
+                artist, name = meta[tid]
+                found = enrich.fetch_track_tags(artist, name)
+                for tag, weight in found:
+                    rows.append({"track_id": tid, "tag": tag, "source": "lastfm", "weight": weight})
+                if not found:
+                    rows.append({"track_id": tid, "tag": "__none__", "source": "lastfm", "weight": 0})
+            db.upsert_tags(rows)
+
+    status_cb("Classifying…")
+    classify.classify_all()
+
+
+def _offer_sync(root: tk.Tk, app: "App") -> None:
+    """After login, ask the user if they want to sync now and run the pipeline."""
+    if not messagebox.askyesno(
+        "Sync your library",
+        "Would you like to sync your Spotify liked songs now?\n\n"
+        "This fetches your library and classifies it by genre, energy, and vibe.\n"
+        "It may take a few minutes the first time.",
+    ):
+        return
+
+    prog = tk.Toplevel(root)
+    prog.title("Syncing…")
+    prog.transient(root)
+    prog.resizable(False, False)
+    status_var = tk.StringVar(value="Starting…")
+    ttk.Label(prog, textvariable=status_var, wraplength=320,
+              font=("TkDefaultFont", 11)).pack(padx=24, pady=(20, 8))
+    pbar = ttk.Progressbar(prog, length=340, mode="indeterminate")
+    pbar.pack(padx=24, pady=(0, 20))
+    pbar.start()
+
+    def status_cb(msg: str) -> None:
+        root.after(0, lambda: status_var.set(msg))
+
+    def worker() -> None:
+        try:
+            _run_pipeline(status_cb)
+            root.after(0, lambda: _sync_done(prog, app, None))
+        except Exception as exc:  # noqa: BLE001
+            root.after(0, lambda: _sync_done(prog, app, exc))
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def _sync_done(prog: tk.Toplevel, app: "App", exc: Exception | None) -> None:
+    try:
+        prog.destroy()
+    except Exception:  # noqa: BLE001
+        pass
+    if exc is not None:
+        messagebox.showerror("Sync failed", str(exc))
+        return
+    app.rows = load_rows()
+    app.refresh()
+    messagebox.showinfo("Sync complete", "Your library is ready!")
+
+
 def main() -> None:
     root = tk.Tk()
-    root.title("Spotify Liked-Songs — Genre / Vibe Browser")
+    root.title("VibeThePlaylist")
     root.geometry("1480x720")
-    App(root)
+
+    import spotify_client as spc
+
+    def launch_app(from_login: bool = False) -> None:
+        for w in root.winfo_children():
+            w.destroy()
+        app = App(root)
+        if from_login:
+            root.after(100, lambda: _offer_sync(root, app))
+
+    if spc.is_authenticated():
+        launch_app(from_login=False)
+    else:
+        LoginFrame(root, on_success=lambda: launch_app(from_login=True))
+
     root.mainloop()
 
 

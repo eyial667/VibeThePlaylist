@@ -1,12 +1,52 @@
-"""Spotify access: OAuth, fetching liked songs/artists/features, capability probe."""
+"""Spotify access: OAuth, PKCE, fetching liked songs/artists/features, capability probe."""
 from __future__ import annotations
 
+import time
 from typing import Iterator
 
 import spotipy
-from spotipy.oauth2 import SpotifyOAuth
+from spotipy.oauth2 import SpotifyOAuth, SpotifyPKCE
 
 import config
+
+_TOKEN_CACHE = str(config.DATA_DIR / ".spotify_token_cache")
+
+
+def is_authenticated() -> bool:
+    """True if a valid or refreshable token is cached (no network call)."""
+    try:
+        from spotipy.cache_handler import CacheFileHandler
+        token = CacheFileHandler(cache_path=_TOKEN_CACHE).get_cached_token()
+        if not token:
+            return False
+        return bool(token.get("refresh_token")) or token.get("expires_at", 0) > time.time()
+    except Exception:
+        return False
+
+
+def get_client_pkce() -> spotipy.Spotify:
+    """PKCE-based client — no client secret required. Used by the GUI."""
+    if not config.SPOTIFY_CLIENT_ID:
+        raise RuntimeError(
+            "Missing SPOTIFY_CLIENT_ID. Add it to .env or bundle it in config.py."
+        )
+    auth = SpotifyPKCE(
+        client_id=config.SPOTIFY_CLIENT_ID,
+        redirect_uri=config.SPOTIFY_REDIRECT_URI,
+        scope=config.SPOTIFY_SCOPES,
+        cache_path=_TOKEN_CACHE,
+        open_browser=True,
+    )
+    return spotipy.Spotify(auth_manager=auth)
+
+
+def logout() -> None:
+    """Remove the cached token so the next launch shows the login screen."""
+    import os
+    try:
+        os.remove(_TOKEN_CACHE)
+    except FileNotFoundError:
+        pass
 
 
 def get_client() -> spotipy.Spotify:
@@ -20,7 +60,7 @@ def get_client() -> spotipy.Spotify:
         client_secret=config.SPOTIFY_CLIENT_SECRET,
         redirect_uri=config.SPOTIFY_REDIRECT_URI,
         scope=config.SPOTIFY_SCOPES,
-        cache_path=str(config.DATA_DIR / ".spotify_token_cache"),
+        cache_path=_TOKEN_CACHE,
         open_browser=True,
     )
     return spotipy.Spotify(auth_manager=auth)
