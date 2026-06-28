@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import MutableMapping
+import logging
 import os
 import time
 from typing import Iterator
@@ -11,6 +12,8 @@ from spotipy.cache_handler import CacheFileHandler, CacheHandler
 from spotipy.oauth2 import SpotifyOAuth, SpotifyPKCE
 
 import config
+
+logger = logging.getLogger(__name__)
 
 
 def _missing_client_id_error() -> str:
@@ -85,10 +88,7 @@ def _clear_cache(handler: CacheHandler) -> None:
         delete()
         return
 
-    try:
-        handler.save_token_to_cache(None)
-    except Exception:
-        pass
+    logger.warning("Unable to clear Spotify token cache for handler %s", type(handler).__name__)
 
 
 def _required_scopes(scopes: str | None = None) -> set[str]:

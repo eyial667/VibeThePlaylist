@@ -88,7 +88,11 @@ def test_get_client_pkce_clears_scope_mismatch_before_auth(monkeypatch):
     client = spotify_client.get_client_pkce(cache_handler=store)
     assert called["clear"] == 1
     assert isinstance(client.auth_manager, DummyPKCE)
-    assert isinstance(client.auth_manager.kwargs["cache_handler"], spotify_client.MappingCacheHandler)
+    handler = client.auth_manager.kwargs["cache_handler"]
+    assert isinstance(handler, spotify_client.MappingCacheHandler)
+    token = {"access_token": "token"}
+    handler.save_token_to_cache(token)
+    assert spotify_client._get_cached_token(store) == token
 
 
 def test_get_client_uses_injected_mapping_cache(monkeypatch):
@@ -108,4 +112,8 @@ def test_get_client_uses_injected_mapping_cache(monkeypatch):
     monkeypatch.setattr(spotify_client.spotipy, "Spotify", DummySpotify)
 
     client = spotify_client.get_client(cache_handler=store)
-    assert isinstance(client.auth_manager.kwargs["cache_handler"], spotify_client.MappingCacheHandler)
+    handler = client.auth_manager.kwargs["cache_handler"]
+    assert isinstance(handler, spotify_client.MappingCacheHandler)
+    token = {"access_token": "token"}
+    handler.save_token_to_cache(token)
+    assert spotify_client._get_cached_token(store) == token
