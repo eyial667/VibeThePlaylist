@@ -1,4 +1,7 @@
 """Tests for the SQLite cache layer and its incremental helpers."""
+import importlib
+
+import config
 import db
 
 
@@ -96,3 +99,29 @@ def test_labels_upsert_overwrites(temp_db):
     with db.connect() as conn:
         band = conn.execute("SELECT energy_band FROM labels WHERE track_id='t1'").fetchone()["energy_band"]
     assert band == "high"
+
+
+def test_using_runtime_scope_isolates_per_user_dbs(monkeypatch, tmp_path):
+    monkeypatch.setenv("VIBETHEPLAYLIST_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("VIBETHEPLAYLIST_CACHE_DIR", raising=False)
+    monkeypatch.delenv("VIBETHEPLAYLIST_DB_PATH", raising=False)
+    monkeypatch.delenv("VIBETHEPLAYLIST_TOKEN_CACHE_PATH", raising=False)
+    monkeypatch.delenv("VIBETHEPLAYLIST_PREVIEW_CACHE_PATH", raising=False)
+    importlib.reload(config)
+    try:
+        with config.using_runtime_scope("alice"):
+            db.init()
+            db.set_meta("owner", "alice")
+
+        with config.using_runtime_scope("bob"):
+            db.init()
+            assert db.get_meta("owner") is None
+            db.set_meta("owner", "bob")
+
+        with config.using_runtime_scope("alice"):
+            assert db.get_meta("owner") == "alice"
+
+        with config.using_runtime_scope("bob"):
+            assert db.get_meta("owner") == "bob"
+    finally:
+        importlib.reload(config)

@@ -6,7 +6,11 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
+import re
+from typing import Iterator
 
 from dotenv import load_dotenv
 
@@ -61,6 +65,42 @@ def _default_data_dir() -> Path:
     return base / APP_NAME
 
 
+@dataclass(frozen=True)
+class RuntimePaths:
+    scope: str | None
+    data_dir: Path
+    cache_dir: Path
+    db_path: Path
+    token_cache_path: Path
+    preview_cache_path: Path
+
+
+def _sanitize_runtime_scope(scope: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", scope.strip()).strip("._-")
+    if not cleaned:
+        raise ValueError("Runtime scope must contain at least one filesystem-safe character.")
+    return cleaned
+
+
+def _scoped_path(path: Path, scope_dir: Path, *, base_data_dir: Path, is_dir: bool) -> Path:
+    try:
+        rel = path.relative_to(base_data_dir)
+    except ValueError:
+        if is_dir:
+            return path / "users" / scope_dir.name
+        return path.parent / "users" / scope_dir.name / path.name
+    return scope_dir / rel
+
+
+def _ensure_runtime_dirs(paths: RuntimePaths) -> RuntimePaths:
+    paths.data_dir.mkdir(parents=True, exist_ok=True)
+    paths.cache_dir.mkdir(parents=True, exist_ok=True)
+    paths.db_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.token_cache_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.preview_cache_path.parent.mkdir(parents=True, exist_ok=True)
+    return paths
+
+
 # --- Paths ---
 DATA_DIR = _path_from_env("VIBETHEPLAYLIST_DATA_DIR", _default_data_dir())
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -73,6 +113,76 @@ TAXONOMY_PATH = _path_from_env("TAXONOMY_PATH", RESOURCE_ROOT / "genreclass" / "
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 PREVIEW_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+_DEFAULT_RUNTIME_PATHS = RuntimePaths(
+    scope=None,
+    data_dir=DATA_DIR,
+    cache_dir=CACHE_DIR,
+    db_path=DB_PATH,
+    token_cache_path=TOKEN_CACHE_PATH,
+    preview_cache_path=PREVIEW_CACHE_PATH,
+)
+
+
+def runtime_paths_for_scope(scope: str) -> RuntimePaths:
+    safe_scope = _sanitize_runtime_scope(scope)
+    scope_dir = _DEFAULT_RUNTIME_PATHS.data_dir / "users" / safe_scope
+    return _ensure_runtime_dirs(
+        RuntimePaths(
+            scope=safe_scope,
+            data_dir=scope_dir,
+            cache_dir=_scoped_path(
+                _DEFAULT_RUNTIME_PATHS.cache_dir,
+                scope_dir,
+                base_data_dir=_DEFAULT_RUNTIME_PATHS.data_dir,
+                is_dir=True,
+            ),
+            db_path=_scoped_path(
+                _DEFAULT_RUNTIME_PATHS.db_path,
+                scope_dir,
+                base_data_dir=_DEFAULT_RUNTIME_PATHS.data_dir,
+                is_dir=False,
+            ),
+            token_cache_path=_scoped_path(
+                _DEFAULT_RUNTIME_PATHS.token_cache_path,
+                scope_dir,
+                base_data_dir=_DEFAULT_RUNTIME_PATHS.data_dir,
+                is_dir=False,
+            ),
+            preview_cache_path=_scoped_path(
+                _DEFAULT_RUNTIME_PATHS.preview_cache_path,
+                scope_dir,
+                base_data_dir=_DEFAULT_RUNTIME_PATHS.data_dir,
+                is_dir=False,
+            ),
+        )
+    )
+
+
+def _apply_runtime_paths(paths: RuntimePaths) -> None:
+    global DATA_DIR, CACHE_DIR, DB_PATH, TOKEN_CACHE_PATH, PREVIEW_CACHE_PATH
+    DATA_DIR = paths.data_dir
+    CACHE_DIR = paths.cache_dir
+    DB_PATH = paths.db_path
+    TOKEN_CACHE_PATH = paths.token_cache_path
+    PREVIEW_CACHE_PATH = paths.preview_cache_path
+
+
+@contextmanager
+def using_runtime_scope(scope: str) -> Iterator[RuntimePaths]:
+    previous = RuntimePaths(
+        scope=None,
+        data_dir=DATA_DIR,
+        cache_dir=CACHE_DIR,
+        db_path=DB_PATH,
+        token_cache_path=TOKEN_CACHE_PATH,
+        preview_cache_path=PREVIEW_CACHE_PATH,
+    )
+    scoped = runtime_paths_for_scope(scope)
+    _apply_runtime_paths(scoped)
+    try:
+        yield scoped
+    finally:
+        _apply_runtime_paths(previous)
 
 # --- Credentials (from env or optional local_settings.py) ---
 SPOTIFY_CLIENT_ID = _setting("SPOTIFY_CLIENT_ID")

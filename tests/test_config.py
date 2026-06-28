@@ -68,3 +68,65 @@ def test_explicit_runtime_path_overrides_default_paths(monkeypatch, tmp_path):
     assert module.TOKEN_CACHE_PATH.parent.exists()
     assert module.PREVIEW_CACHE_PATH.parent.exists()
     _assert_parent_dirs_are_writable(module)
+
+
+def test_runtime_paths_for_scope_stays_under_data_dir(monkeypatch, tmp_path):
+    data_dir = tmp_path / "appdata"
+    monkeypatch.setenv("VIBETHEPLAYLIST_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("VIBETHEPLAYLIST_CACHE_DIR", raising=False)
+    monkeypatch.delenv("VIBETHEPLAYLIST_DB_PATH", raising=False)
+    monkeypatch.delenv("VIBETHEPLAYLIST_TOKEN_CACHE_PATH", raising=False)
+    monkeypatch.delenv("VIBETHEPLAYLIST_PREVIEW_CACHE_PATH", raising=False)
+
+    module = importlib.reload(config)
+    paths = module.runtime_paths_for_scope(" listener/42 ")
+
+    assert paths.scope == "listener_42"
+    assert paths.data_dir == data_dir / "users" / "listener_42"
+    assert paths.cache_dir == paths.data_dir / "cache"
+    assert paths.db_path == paths.data_dir / "library.db"
+    assert paths.token_cache_path == paths.data_dir / ".spotify_token_cache"
+    assert paths.preview_cache_path == paths.data_dir / "cache" / "preview.mp3"
+    _assert_parent_dirs_are_writable(module)
+    _assert_parent_dirs_are_writable(type("ScopedConfig", (), {
+        "DB_PATH": paths.db_path,
+        "TOKEN_CACHE_PATH": paths.token_cache_path,
+        "PREVIEW_CACHE_PATH": paths.preview_cache_path,
+    }))
+
+
+def test_runtime_paths_for_scope_respects_explicit_file_overrides(monkeypatch, tmp_path):
+    monkeypatch.setenv("VIBETHEPLAYLIST_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("VIBETHEPLAYLIST_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("VIBETHEPLAYLIST_DB_PATH", str(tmp_path / "state" / "library.sqlite3"))
+    monkeypatch.setenv("VIBETHEPLAYLIST_TOKEN_CACHE_PATH", str(tmp_path / "secrets" / "spotify.token"))
+    monkeypatch.setenv("VIBETHEPLAYLIST_PREVIEW_CACHE_PATH", str(tmp_path / "media" / "preview.mp3"))
+
+    module = importlib.reload(config)
+    paths = module.runtime_paths_for_scope("alice@example.com")
+
+    assert paths.data_dir == tmp_path / "data" / "users" / "alice_example.com"
+    assert paths.cache_dir == tmp_path / "cache" / "users" / "alice_example.com"
+    assert paths.db_path == tmp_path / "state" / "users" / "alice_example.com" / "library.sqlite3"
+    assert paths.token_cache_path == tmp_path / "secrets" / "users" / "alice_example.com" / "spotify.token"
+    assert paths.preview_cache_path == tmp_path / "media" / "users" / "alice_example.com" / "preview.mp3"
+
+
+def test_using_runtime_scope_swaps_paths_temporarily(monkeypatch, tmp_path):
+    monkeypatch.setenv("VIBETHEPLAYLIST_DATA_DIR", str(tmp_path / "appdata"))
+    monkeypatch.delenv("VIBETHEPLAYLIST_CACHE_DIR", raising=False)
+    monkeypatch.delenv("VIBETHEPLAYLIST_DB_PATH", raising=False)
+    monkeypatch.delenv("VIBETHEPLAYLIST_TOKEN_CACHE_PATH", raising=False)
+    monkeypatch.delenv("VIBETHEPLAYLIST_PREVIEW_CACHE_PATH", raising=False)
+
+    module = importlib.reload(config)
+    original = (module.DATA_DIR, module.CACHE_DIR, module.DB_PATH, module.TOKEN_CACHE_PATH, module.PREVIEW_CACHE_PATH)
+
+    with module.using_runtime_scope("user-7") as paths:
+        assert module.DATA_DIR == paths.data_dir
+        assert module.CACHE_DIR == paths.cache_dir
+        assert module.DB_PATH == paths.db_path
+        assert module.TOKEN_CACHE_PATH == paths.token_cache_path
+        assert module.PREVIEW_CACHE_PATH == paths.preview_cache_path
+
+    assert (module.DATA_DIR, module.CACHE_DIR, module.DB_PATH, module.TOKEN_CACHE_PATH, module.PREVIEW_CACHE_PATH) == original
