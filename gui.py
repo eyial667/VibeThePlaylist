@@ -40,11 +40,12 @@ except (ImportError, OSError):
     def pyqtSignal(*a, **kw):            # type: ignore[misc]
         return None
 
-    class _QtNS:
-        """Namespace stub: returns *itself* for any attribute access so that
-        chained lookups like ``Qt.ItemDataRole.DisplayRole`` evaluate to a
-        sentinel object rather than raising AttributeError."""
-        def __getattr__(self, name: str) -> "_QtNS":
+    class _QtSentinel:
+        """Attribute-chain sentinel: returns *itself* for any attribute access
+        so that lookups like ``Qt.ItemDataRole.DisplayRole`` or
+        ``Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable`` evaluate
+        to a harmless sentinel rather than raising AttributeError."""
+        def __getattr__(self, name: str) -> "_QtSentinel":
             return self
         def __or__(self, other: object) -> object:
             return self
@@ -54,7 +55,7 @@ except (ImportError, OSError):
             return 0
 
     class Qt:                            # type: ignore[misc]
-        ItemDataRole = ItemFlag = CheckState = AlignmentFlag = _QtNS()
+        ItemDataRole = ItemFlag = CheckState = AlignmentFlag = _QtSentinel()
 
     QThread = QTimer = QAbstractTableModel = QModelIndex = _Stub  # type: ignore[misc,assignment]
     QColor = QFont = _Stub                                         # type: ignore[misc,assignment]
