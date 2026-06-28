@@ -31,6 +31,14 @@ def test_data_dir_env_override_updates_runtime_paths(monkeypatch, tmp_path):
     assert module.DB_PATH.parent.exists()
     assert module.TOKEN_CACHE_PATH.parent.exists()
     assert module.PREVIEW_CACHE_PATH.parent.exists()
+    for parent, name in (
+        (module.DB_PATH.parent, "db-parent.txt"),
+        (module.TOKEN_CACHE_PATH.parent, "token-parent.txt"),
+        (module.PREVIEW_CACHE_PATH.parent, "preview-parent.txt"),
+    ):
+        marker = parent / name
+        marker.write_text("ok", encoding="utf-8")
+        assert marker.read_text(encoding="utf-8") == "ok"
 
 
 def test_explicit_runtime_path_overrides_default_paths(monkeypatch, tmp_path):
@@ -55,3 +63,11 @@ def test_explicit_runtime_path_overrides_default_paths(monkeypatch, tmp_path):
     assert module.DB_PATH.parent.exists()
     assert module.TOKEN_CACHE_PATH.parent.exists()
     assert module.PREVIEW_CACHE_PATH.parent.exists()
+    for parent, name in (
+        (module.DB_PATH.parent, "db-parent.txt"),
+        (module.TOKEN_CACHE_PATH.parent, "token-parent.txt"),
+        (module.PREVIEW_CACHE_PATH.parent, "preview-parent.txt"),
+    ):
+        marker = parent / name
+        marker.write_text("ok", encoding="utf-8")
+        assert marker.read_text(encoding="utf-8") == "ok"

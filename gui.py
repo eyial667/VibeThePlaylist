@@ -439,14 +439,15 @@ class _PreviewPlayer:
 
     def _fetch_and_play(self, track_id: str, url: str, on_change) -> None:
         try:
+            cache_path = config.PREVIEW_CACHE_PATH
             with urllib.request.urlopen(url, timeout=10) as resp:
                 data = resp.read()
             if self.playing_id != track_id:
                 return
             self._pg.mixer.music.stop()
-            with open(config.PREVIEW_CACHE_PATH, "wb") as f:
+            with open(cache_path, "wb") as f:
                 f.write(data)
-            self._pg.mixer.music.load(str(config.PREVIEW_CACHE_PATH))
+            self._pg.mixer.music.load(str(cache_path))
             self._pg.mixer.music.play()
             while self._pg.mixer.music.get_busy() and self.playing_id == track_id:
                 time.sleep(0.1)

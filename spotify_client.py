@@ -12,10 +12,6 @@ from spotipy.oauth2 import SpotifyOAuth, SpotifyPKCE
 import config
 
 
-def _token_cache_path() -> str:
-    return str(config.TOKEN_CACHE_PATH)
-
-
 def _missing_client_id_error() -> str:
     if config.PACKAGED_APP:
         return (
@@ -41,7 +37,7 @@ def _missing_client_credentials_error() -> str:
 
 
 def _get_cached_token() -> dict | None:
-    return CacheFileHandler(cache_path=_token_cache_path()).get_cached_token()
+    return CacheFileHandler(cache_path=str(config.TOKEN_CACHE_PATH)).get_cached_token()
 
 
 def _required_scopes(scopes: str | None = None) -> set[str]:
@@ -88,7 +84,7 @@ def get_client_pkce() -> spotipy.Spotify:
         client_id=config.SPOTIFY_CLIENT_ID,
         redirect_uri=config.SPOTIFY_REDIRECT_URI,
         scope=config.SPOTIFY_SCOPES,
-        cache_path=_token_cache_path(),
+        cache_path=str(config.TOKEN_CACHE_PATH),
         open_browser=True,
     )
     return spotipy.Spotify(auth_manager=auth)
@@ -97,7 +93,7 @@ def get_client_pkce() -> spotipy.Spotify:
 def logout() -> None:
     """Remove the cached token so the next launch shows the login screen."""
     try:
-        os.remove(_token_cache_path())
+        os.remove(config.TOKEN_CACHE_PATH)
     except FileNotFoundError:
         pass
 
@@ -111,7 +107,7 @@ def get_client() -> spotipy.Spotify:
         client_secret=config.SPOTIFY_CLIENT_SECRET,
         redirect_uri=config.SPOTIFY_REDIRECT_URI,
         scope=config.SPOTIFY_SCOPES,
-        cache_path=_token_cache_path(),
+        cache_path=str(config.TOKEN_CACHE_PATH),
         open_browser=True,
     )
     return spotipy.Spotify(auth_manager=auth)
