@@ -2,5 +2,6 @@ spotipy>=2.23.0
 requests>=2.31.0
 python-dotenv>=1.0.0
 tqdm>=4.66.0
+PyQt6>=6.4.0
 anthropic>=0.40.0   # optional: used by `cli.py llm` and `cli.py genre-classify`
 pydantic>=2.0       # validates the genre-specification classifier's JSON output
