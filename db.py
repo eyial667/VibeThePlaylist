@@ -112,6 +112,7 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("tracks", "match_confidence", "REAL"),
     ("tracks", "resolution_method", "TEXT"),
     ("labels", "subgenres", "TEXT"),  # from the subgenre classification work
+    ("tracks", "preview_url", "TEXT"),
 ]
 
 # Columns that were removed from the schema and should be dropped from old DBs.
@@ -186,8 +187,8 @@ def get_meta(key: str, default: str | None = None) -> str | None:
 def upsert_tracks(rows: Iterable[dict]) -> None:
     with connect() as conn:
         conn.executemany(
-            "INSERT INTO tracks(id, name, artist_ids, artist_name, album, added_at, duration_ms) "
-            "VALUES(:id, :name, :artist_ids, :artist_name, :album, :added_at, :duration_ms) "
+            "INSERT INTO tracks(id, name, artist_ids, artist_name, album, added_at, duration_ms, preview_url) "
+            "VALUES(:id, :name, :artist_ids, :artist_name, :album, :added_at, :duration_ms, :preview_url) "
             "ON CONFLICT(id) DO NOTHING",
             [
                 {
@@ -198,6 +199,7 @@ def upsert_tracks(rows: Iterable[dict]) -> None:
                     "album": r.get("album"),
                     "added_at": r.get("added_at"),
                     "duration_ms": r.get("duration_ms"),
+                    "preview_url": r.get("preview_url"),
                 }
                 for r in rows
             ],

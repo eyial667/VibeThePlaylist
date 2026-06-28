@@ -63,34 +63,35 @@ def _filters(**kw):
 
 def test_exclude_removes_matching_row():
     inc, exc = _filters(exc_ar=["BannedArtist"])
-    assert gui.row_matches(_row(artist="BannedArtist"), inc, exc, any_mode=True) is False
-    assert gui.row_matches(_row(artist="OtherArtist"), inc, exc, any_mode=True) is True
+    assert gui.row_matches(_row(artist="BannedArtist"), inc, exc, {}) is False
+    assert gui.row_matches(_row(artist="OtherArtist"), inc, exc, {}) is True
 
 
 def test_exclude_overrides_include():
     # include the genre but exclude the artist -> excluded wins
     inc, exc = _filters(inc_g=["Hip-hop/Rap"], exc_ar=["Z"])
     row = _row(genres=["Hip-hop/Rap"], artist="Z")
-    assert gui.row_matches(row, inc, exc, any_mode=True) is False
+    assert gui.row_matches(row, inc, exc, {}) is False
 
 
 def test_include_any_vs_all():
-    inc, exc = _filters(inc_g=["Jazz"], inc_e=["high"])
-    row = _row(genres=["Jazz"], energy="low")  # matches genre, not energy
-    assert gui.row_matches(row, inc, exc, any_mode=True) is True    # Any
-    assert gui.row_matches(row, inc, exc, any_mode=False) is False  # All
+    # Test per-panel OR (any) vs AND (all) mode via any_modes dict.
+    inc, exc = _filters(inc_g=["Jazz", "Rock"])
+    row = _row(genres=["Jazz"])   # matches Jazz but not Rock
+    assert gui.row_matches(row, inc, exc, {"g": True}) is True    # OR: one match is enough
+    assert gui.row_matches(row, inc, exc, {"g": False}) is False  # AND: all must match
 
 
 def test_no_filters_keeps_everything():
     inc, exc = _filters()
-    assert gui.row_matches(_row(), inc, exc, any_mode=True) is True
+    assert gui.row_matches(_row(), inc, exc, {}) is True
 
 
 def test_subgenre_include_and_exclude():
     inc, exc = _filters(inc_sg=["Drill"])
     assert gui.row_matches(_row(genres=["Hip-hop/Rap"], subgenres=["Drill"]),
-                           inc, exc, any_mode=True) is True
+                           inc, exc, {}) is True
     assert gui.row_matches(_row(genres=["Hip-hop/Rap"], subgenres=["Trap"]),
-                           inc, exc, any_mode=True) is False
+                           inc, exc, {}) is False
     inc, exc = _filters(exc_sg=["Drill"])
-    assert gui.row_matches(_row(subgenres=["Drill"]), inc, exc, any_mode=True) is False
+    assert gui.row_matches(_row(subgenres=["Drill"]), inc, exc, {}) is False
