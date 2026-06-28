@@ -108,7 +108,7 @@ def test_create_named_playlist_updates_existing_ascii_fallback(temp_db, fake_spo
     sp = fake_spotify(existing=existing)
     full = playlists.create_named_playlist(sp, "Chill", ["t1", "t2"])
     assert full == "VibeThePlaylist - Chill"
-    assert len(sp.created) == 1
+    assert sp.created == existing  # updated the existing fallback playlist instead of creating a new one
     assert sp.items["pl1"] == ["spotify:track:t1", "spotify:track:t2"]
 
 

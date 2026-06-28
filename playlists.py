@@ -75,12 +75,11 @@ def _is_invalid_request(exc: spotipy.SpotifyException) -> bool:
 def _playlist_error_message(exc: spotipy.SpotifyException) -> str:
     detail_lc = _spotify_error_detail(exc).lower()
     if exc.http_status == 429:
-        retry_after = ""
         if isinstance(exc.headers, dict):
             wait = exc.headers.get("Retry-After")
             if wait:
-                retry_after = f" Wait about {wait} seconds, then try again."
-        return f"Spotify is rate-limiting playlist changes.{retry_after or ' Please wait a bit, then try again.'}"
+                return f"Spotify is rate-limiting playlist changes. Wait about {wait} seconds, then try again."
+        return "Spotify is rate-limiting playlist changes. Please wait a bit, then try again."
     if exc.http_status == 401 or any(marker in detail_lc for marker in _TOKEN_ERROR_MARKERS):
         return _REAUTH_MESSAGE
     if _is_permission_error(exc, detail_lc):
@@ -112,11 +111,10 @@ def _create_playlist(
         return pl["id"], name
     except spotipy.SpotifyException as exc:
         if _should_retry_with_ascii_name(exc, name, fallback_name):
-            log.warning(
+            log.info(
                 "Spotify rejected playlist name %r; retrying with ASCII-safe name %r",
                 name,
                 fallback_name,
-                exc_info=True,
             )
             pl = sp.user_playlist_create(
                 user_id,
