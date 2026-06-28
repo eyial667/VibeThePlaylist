@@ -39,8 +39,8 @@ def load_rows() -> list[dict]:
         db.init()
         with db.connect() as conn:
             rows = conn.execute(
-                "SELECT t.id, t.artist_name, t.name, t.album, l.genre_buckets, "
-                "l.subgenres, l.energy_band, l.vibes "
+                "SELECT t.id, t.artist_name, t.name, t.album, t.preview_url, "
+                "l.genre_buckets, l.subgenres, l.energy_band, l.vibes "
                 "FROM labels l JOIN tracks t ON t.id = l.track_id"
             ).fetchall()
     except Exception:
@@ -52,6 +52,7 @@ def load_rows() -> list[dict]:
             "artist": r["artist_name"],
             "title": r["name"],
             "album": r["album"] or "",
+            "preview_url": r["preview_url"],
             "genres": json.loads(r["genre_buckets"] or "[]"),
             "subgenres": json.loads(r["subgenres"] or "[]"),
             "energy": r["energy_band"],
@@ -362,28 +363,12 @@ class App(ttk.Frame):
         super().__init__(master, padding=10)
         self.pack(fill="both", expand=True)
         self.rows = load_rows()
+        self._player = _PreviewPlayer()
+        self._row_by_iid: dict[str, dict] = {}
 
-        # --- top: filter groups ---
-        filters = ttk.Frame(self)
-        filters.pack(fill="x")
-
-        self.genre_group = CheckGroup(filters, "Genres", GENRES, self.refresh)
-        self.genre_group.pack(side="left", fill="y", padx=(0, 8))
-
-        self.subgenre_group = CheckListGroup(filters, "Subgenres", SUBGENRES, self.refresh)
-        self.subgenre_group.pack(side="left", fill="both", padx=8)
-
-        self.vibe_group = CheckGroup(filters, "Vibes", VIBES, self.refresh)
-        self.vibe_group.pack(side="left", fill="y", padx=8)
-
-        right = ttk.Frame(filters)
-        right.pack(side="left", fill="y", padx=8)
-        self.energy_group = CheckGroup(right, "Energy", ENERGIES, self.refresh)
-        self.energy_group.pack(fill="x")
-
+        # cross-filter maps built once from all rows
         artists = sorted({r["artist"] for r in self.rows if r["artist"]})
-        albums = sorted({r["album"] for r in self.rows if r["album"]})
-        # cross-filter maps: which albums each artist appears on, and vice versa
+        albums  = sorted({r["album"]  for r in self.rows if r["album"]})
         self.artist_albums: dict[str, set[str]] = {}
         self.album_artists: dict[str, set[str]] = {}
         for r in self.rows:
@@ -391,22 +376,50 @@ class App(ttk.Frame):
             if a and al:
                 self.artist_albums.setdefault(a, set()).add(al)
                 self.album_artists.setdefault(al, set()).add(a)
-        self.artist_group = CheckListGroup(filters, "Artists", artists, self.refresh)
-        self.artist_group.pack(side="left", fill="both", padx=8)
-        self.album_group = CheckListGroup(filters, "Albums", albums, self.refresh)
-        self.album_group.pack(side="left", fill="both", padx=8)
 
-        # --- middle: controls ---
+        # --- filter notebook (tabs) ---
+        nb = ttk.Notebook(self)
+        nb.pack(fill="x", pady=(0, 6))
+
+        # Tab 1: Genres & Vibes
+        tab_gv = ttk.Frame(nb, padding=8)
+        nb.add(tab_gv, text="  Genres & Vibes  ")
+        self.genre_group = CheckGroup(tab_gv, "Genres", GENRES, self.refresh)
+        self.genre_group.pack(side="left", fill="y", padx=(0, 10))
+        self.subgenre_group = CheckListGroup(tab_gv, "Subgenres", SUBGENRES, self.refresh,
+                                             width=24, canvas_height=180)
+        self.subgenre_group.pack(side="left", fill="both", padx=(0, 10))
+        self.vibe_group = CheckGroup(tab_gv, "Vibes", VIBES, self.refresh)
+        self.vibe_group.pack(side="left", fill="y", padx=(0, 10))
+        self.energy_group = CheckGroup(tab_gv, "Energy", ENERGIES, self.refresh)
+        self.energy_group.pack(side="left", fill="y")
+
+        # Tab 2: Artists
+        tab_ar = ttk.Frame(nb, padding=8)
+        nb.add(tab_ar, text="  Artists  ")
+        self.artist_group = CheckListGroup(tab_ar, "Artists", artists, self.refresh,
+                                           width=36, canvas_height=180)
+        self.artist_group.pack(fill="both", expand=True)
+
+        # Tab 3: Albums
+        tab_al = ttk.Frame(nb, padding=8)
+        nb.add(tab_al, text="  Albums  ")
+        self.album_group = CheckListGroup(tab_al, "Albums", albums, self.refresh,
+                                          width=36, canvas_height=180)
+        self.album_group.pack(fill="both", expand=True)
+
+        # --- controls bar ---
         controls = ttk.Frame(self)
-        controls.pack(fill="x", pady=8)
+        controls.pack(fill="x", pady=(0, 6))
+
         ttk.Button(controls, text="Clear all filters",
                    command=self.clear_all).pack(side="left")
         ttk.Button(controls, text="Sync library",
                    command=self._sync).pack(side="left", padx=(8, 0))
         ttk.Button(controls, text="Log out",
                    command=self._logout).pack(side="left", padx=(8, 0))
-        self.create_btn = ttk.Button(controls, text="Create Spotify playlist…",
-                                      command=self.create_playlist)
+        self.create_btn = ttk.Button(controls, text="Create playlist…",
+                                     command=self.create_playlist)
         self.create_btn.pack(side="left", padx=(8, 0))
         self.classify_btn = ttk.Button(controls, text="Classify track…",
                                        command=self.classify_track)
@@ -414,32 +427,84 @@ class App(ttk.Frame):
         self.classify_lib_btn = ttk.Button(controls, text="Classify library…",
                                            command=self.classify_library)
         self.classify_lib_btn.pack(side="left", padx=(8, 0))
-        ttk.Label(controls, text="   Match:").pack(side="left")
+
+        ttk.Label(controls, text="Match:").pack(side="left", padx=(16, 4))
         self.match_mode = tk.StringVar(value="any")
-        ttk.Radiobutton(controls, text="Any selected", value="any",
+        ttk.Radiobutton(controls, text="Any", value="any",
                         variable=self.match_mode, command=self.refresh).pack(side="left")
-        ttk.Radiobutton(controls, text="All categories", value="all",
-                        variable=self.match_mode, command=self.refresh).pack(side="left")
+        ttk.Radiobutton(controls, text="All", value="all",
+                        variable=self.match_mode, command=self.refresh).pack(side="left", padx=(4, 0))
+
+        # search box (right-aligned)
+        ttk.Label(controls, text="Search:").pack(side="right", padx=(0, 4))
+        self.search_var = tk.StringVar()
+        self.search_var.trace_add("write", lambda *_: self.refresh())
+        ttk.Entry(controls, textvariable=self.search_var, width=26).pack(side="right")
+
         self.count_var = tk.StringVar()
         ttk.Label(controls, textvariable=self.count_var,
-                  font=("TkDefaultFont", 10, "bold")).pack(side="right")
-        ttk.Label(controls, text="click to tick;  INCLUDE/EXCLUDE button sets each section's mode",
-                  foreground="gray40").pack(side="right", padx=12)
+                  font=("TkDefaultFont", 10, "bold")).pack(side="right", padx=(0, 16))
 
-        # --- bottom: results table ---
-        cols = ("artist", "title", "album", "genres", "subgenres", "energy", "vibes")
-        self.tree = ttk.Treeview(self, columns=cols, show="headings", height=18)
-        widths = {"artist": 150, "title": 200, "album": 170,
-                  "genres": 150, "subgenres": 150, "energy": 60, "vibes": 180}
+        # --- results table ---
+        table_frame = ttk.Frame(self)
+        table_frame.pack(fill="both", expand=True)
+
+        cols = ("play", "artist", "title", "album", "genres", "subgenres", "energy", "vibes")
+        self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", height=16)
+        widths = {"play": 30, "artist": 150, "title": 200, "album": 160,
+                  "genres": 140, "subgenres": 140, "energy": 55, "vibes": 170}
+        headings = {"play": "▶", "artist": "Artist", "title": "Title", "album": "Album",
+                    "genres": "Genres", "subgenres": "Subgenres", "energy": "Energy",
+                    "vibes": "Vibes"}
         for c in cols:
-            self.tree.heading(c, text=c.capitalize())
-            self.tree.column(c, width=widths[c], anchor="w")
-        vsb = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
+            self.tree.heading(c, text=headings[c])
+            self.tree.column(c, width=widths[c], anchor="w", stretch=(c != "play"))
+        self.tree.column("play", anchor="center", stretch=False)
+
+        self.tree.tag_configure("playing", background="#d4edda")
+
+        vsb = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vsb.set)
         self.tree.pack(side="left", fill="both", expand=True)
         vsb.pack(side="left", fill="y")
 
+        self.tree.bind("<Double-1>", self._on_double_click)
+
+        # --- status bar ---
+        self.status_var = tk.StringVar()
+        ttk.Label(self, textvariable=self.status_var,
+                  foreground="gray40", font=("TkDefaultFont", 9)).pack(
+            anchor="w", pady=(4, 0))
+
         self.refresh()
+
+    # --- preview playback --------------------------------------------------
+    def _on_double_click(self, event) -> None:
+        row_id = self.tree.identify_row(event.y)
+        if not row_id:
+            return
+        track = self._row_by_iid.get(row_id)
+        if not track:
+            return
+        if not self._player.available:
+            self.status_var.set("Install pygame to enable preview playback.")
+            return
+        if not track.get("preview_url"):
+            self.status_var.set(f"No preview available for {track['artist']} — {track['title']}.")
+            return
+        self._player.toggle(track["id"], track["preview_url"],
+                            lambda: self.after(0, self._update_player_ui))
+
+    def _update_player_ui(self) -> None:
+        pid = self._player.playing_id
+        for iid, track in self._row_by_iid.items():
+            if track["id"] == pid:
+                self.tree.item(iid, tags=("playing",))
+                self.status_var.set(f"▶  {track['artist']} — {track['title']}   (double-click to stop)")
+            else:
+                self.tree.item(iid, tags=())
+        if pid is None:
+            self.status_var.set("")
 
     # --- sync / logout -----------------------------------------------------
     def _sync(self) -> None:
@@ -448,6 +513,7 @@ class App(ttk.Frame):
     def _logout(self) -> None:
         if not messagebox.askyesno("Log out", "Disconnect your Spotify account?"):
             return
+        self._player.stop()
         import spotify_client as spc
         spc.logout()
         root = self.winfo_toplevel()
@@ -498,16 +564,30 @@ class App(ttk.Frame):
         self.album_group.set_allowed(allowed_albums)
         self.artist_group.set_allowed(allowed_artists)
 
+        q = self.search_var.get().strip().lower()
         self.tree.delete(*self.tree.get_children())
-        self.shown_rows = [row for row in self.rows if self._matches(row, inc, exc)]
+        self._row_by_iid: dict[str, dict] = {}
+        self.shown_rows = [
+            row for row in self.rows
+            if self._matches(row, inc, exc) and self._search_matches(row, q)
+        ]
+        pid = self._player.playing_id
         for row in self.shown_rows:
-            # show precise subgenres when known, else fall back to coarse genres
             subgenres = ", ".join(row["subgenres"]) if row["subgenres"] else ", ".join(row["genres"])
-            self.tree.insert("", "end", values=(
-                row["artist"], row["title"], row["album"], ", ".join(row["genres"]),
-                subgenres, row["energy"] or "?", ", ".join(row["vibes"]),
+            play_marker = "▶" if row["id"] == pid else ("♪" if row.get("preview_url") else "")
+            tags = ("playing",) if row["id"] == pid else ()
+            iid = self.tree.insert("", "end", tags=tags, values=(
+                play_marker, row["artist"], row["title"], row["album"],
+                ", ".join(row["genres"]), subgenres,
+                row["energy"] or "?", ", ".join(row["vibes"]),
             ))
+            self._row_by_iid[iid] = row
         self.count_var.set(f"{len(self.shown_rows)} / {len(self.rows)} tracks")
+
+    def _search_matches(self, row: dict, q: str) -> bool:
+        if not q:
+            return True
+        return q in row["artist"].lower() or q in row["title"].lower()
 
     # --- playlist creation -------------------------------------------------
     def _ask_string(self, title: str, prompt: str, initial: str = "") -> str | None:
@@ -685,6 +765,75 @@ class App(ttk.Frame):
             messagebox.showerror("Batch classification failed", str(exc))
             return
         messagebox.showinfo("Library classified", "\n".join(stats.summary_lines()))
+
+
+_PREVIEW_CACHE = str(config.DATA_DIR / ".preview_cache.mp3")
+
+
+class _PreviewPlayer:
+    """Download and play a 30-second Spotify preview clip (one at a time).
+
+    Uses pygame.mixer when available; silently disabled otherwise so the rest
+    of the GUI is unaffected if pygame isn't installed.
+    """
+
+    def __init__(self):
+        self.playing_id: str | None = None
+        try:
+            import pygame
+            pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=1024)
+            pygame.mixer.init()
+            self._pg = pygame
+        except Exception:
+            self._pg = None
+
+    @property
+    def available(self) -> bool:
+        return self._pg is not None
+
+    def toggle(self, track_id: str, url: str | None, on_change) -> None:
+        """Play the preview, or stop it if this track is already playing."""
+        if not self._pg:
+            return
+        if self.playing_id == track_id:
+            self._pg.mixer.music.stop()
+            self.playing_id = None
+            on_change()
+            return
+        self.playing_id = track_id
+        on_change()
+        if not url:
+            self.playing_id = None
+            on_change()
+            return
+        threading.Thread(target=self._fetch_and_play,
+                         args=(track_id, url, on_change), daemon=True).start()
+
+    def stop(self) -> None:
+        if self._pg:
+            self._pg.mixer.music.stop()
+        self.playing_id = None
+
+    def _fetch_and_play(self, track_id: str, url: str, on_change) -> None:
+        import time
+        import urllib.request
+        try:
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                data = resp.read()
+            if self.playing_id != track_id:
+                return
+            self._pg.mixer.music.stop()
+            with open(_PREVIEW_CACHE, "wb") as f:
+                f.write(data)
+            self._pg.mixer.music.load(_PREVIEW_CACHE)
+            self._pg.mixer.music.play()
+            while self._pg.mixer.music.get_busy() and self.playing_id == track_id:
+                time.sleep(0.1)
+        except Exception:
+            pass
+        if self.playing_id == track_id:
+            self.playing_id = None
+            on_change()
 
 
 def _relaunch(root: tk.Tk) -> None:

@@ -102,6 +102,7 @@ def iter_liked_tracks(sp: spotipy.Spotify) -> Iterator[dict]:
                 "album": (t.get("album") or {}).get("name"),
                 "added_at": item.get("added_at"),
                 "duration_ms": t.get("duration_ms"),
+                "preview_url": t.get("preview_url"),
             }
         results = sp.next(results) if results.get("next") else None
 
