@@ -623,6 +623,18 @@ class TrackTableModel(QAbstractTableModel):
                 [Qt.ItemDataRole.CheckStateRole, Qt.ItemDataRole.BackgroundRole],
             )
 
+    def select_shown(self) -> None:
+        self._checked_ids.update(r["id"] for r in self._rows)
+        if self._rows:
+            self.dataChanged.emit(
+                self.index(0, _COL_CHECK),
+                self.index(len(self._rows) - 1, _COL_CHECK),
+                [Qt.ItemDataRole.CheckStateRole, Qt.ItemDataRole.BackgroundRole],
+            )
+
+    def all_shown_checked(self) -> bool:
+        return bool(self._rows) and all(r["id"] in self._checked_ids for r in self._rows)
+
     def checked_count(self) -> int:
         return len(self._checked_ids)
 
@@ -1001,11 +1013,13 @@ class LibraryWidget(QWidget):
         self.reset_btn    = QPushButton("Reset filters")
         self.refresh_btn  = QPushButton("Refresh library")
         self.playlist_btn = QPushButton("Save as playlist…")
+        self.select_btn   = QPushButton("Select all")
         self.logout_btn   = QPushButton("Log out")
 
         self.reset_btn.clicked.connect(self._reset_filters)
         self.refresh_btn.clicked.connect(self._sync)
         self.playlist_btn.clicked.connect(self._create_playlist)
+        self.select_btn.clicked.connect(self._toggle_select_all)
         self.logout_btn.clicked.connect(self._logout)
 
         btn_row = QHBoxLayout()
@@ -1013,6 +1027,7 @@ class LibraryWidget(QWidget):
         btn_row.addWidget(self.reset_btn)
         btn_row.addWidget(self.refresh_btn)
         btn_row.addWidget(self.playlist_btn)
+        btn_row.addWidget(self.select_btn)
         btn_row.addStretch()
         btn_row.addWidget(self.logout_btn)
 
@@ -1120,6 +1135,15 @@ class LibraryWidget(QWidget):
         if checked:
             label += f"  ·  {checked} selected"
         self.count_lbl.setText(label)
+        self.select_btn.setText(
+            "Deselect all" if self.model.all_shown_checked() else "Select all"
+        )
+
+    def _toggle_select_all(self) -> None:
+        if self.model.all_shown_checked():
+            self.model.clear_checked()
+        else:
+            self.model.select_shown()
 
     def _reset_filters(self) -> None:
         for p in (self.genre_panel, self.subgenre_panel, self.vibe_panel,
