@@ -39,31 +39,69 @@ ENERGIES = [band[2] for band in config.ENERGY_BANDS]
 INCLUDE, EXCLUDE = "include", "exclude"
 
 # ---------------------------------------------------------------------------
-# Stylesheet
+# Stylesheet (auto light / dark)
 # ---------------------------------------------------------------------------
 _GREEN      = "#1DB954"
 _GREEN_DARK = "#17a348"
 
-STYLESHEET = f"""
+
+def _build_stylesheet(dark: bool) -> str:
+    if dark:
+        bg        = "#1e1e1e"
+        surface   = "#2a2a2a"
+        border    = "#3a3a3a"
+        text      = "#e8e8e8"
+        muted     = "#888888"
+        hover     = "#333333"
+        pressed   = "#3d3d3d"
+        disabled  = "#555555"
+        sel_bg    = "#1a3d27"
+        alt_row   = "#252525"
+        hdr_bg    = "#1e1e1e"
+        scroll    = "#555555"
+        show_bg   = "#1a3d27"; show_bd = "#2d6a4f"; show_fg = "#6fcf97"
+        hide_bg   = "#3d1a1a"; hide_bd = "#7a2020"; hide_fg = "#f28b82"
+        input_bg  = "#2a2a2a"
+        pane_bg   = "#252525"
+    else:
+        bg        = "#f7f7f7"
+        surface   = "#ffffff"
+        border    = "#d0d0d0"
+        text      = "#1a1a1a"
+        muted     = "#888888"
+        hover     = "#f0f0f0"
+        pressed   = "#e0e0e0"
+        disabled  = "#aaaaaa"
+        sel_bg    = "#e6f4ea"
+        alt_row   = "#fafafa"
+        hdr_bg    = "#f7f7f7"
+        scroll    = "#d0d0d0"
+        show_bg   = "#e6f4ea"; show_bd = "#a8d5b5"; show_fg = "#2d6a4f"
+        hide_bg   = "#fdecea"; hide_bd = "#f4a8a0"; hide_fg = "#b71c1c"
+        input_bg  = "#ffffff"
+        pane_bg   = "#ffffff"
+
+    return f"""
 /* ── base ───────────────────────────────────────────── */
 QMainWindow, QDialog, QWidget {{
-    background-color: #f7f7f7;
+    background-color: {bg};
     font-family: "Segoe UI", "Ubuntu", "Helvetica Neue", Arial, sans-serif;
     font-size: 13px;
-    color: #1a1a1a;
+    color: {text};
 }}
 
 /* ── buttons ─────────────────────────────────────────── */
 QPushButton {{
-    background-color: #ffffff;
-    border: 1px solid #d0d0d0;
+    background-color: {surface};
+    border: 1px solid {border};
     border-radius: 6px;
-    padding: 6px 14px;
-    color: #1a1a1a;
+    padding: 8px 18px;
+    color: {text};
+    font-size: 13px;
 }}
-QPushButton:hover  {{ background-color: #f0f0f0; }}
-QPushButton:pressed {{ background-color: #e0e0e0; }}
-QPushButton:disabled {{ color: #aaa; background: #f5f5f5; }}
+QPushButton:hover   {{ background-color: {hover}; }}
+QPushButton:pressed {{ background-color: {pressed}; }}
+QPushButton:disabled {{ color: {disabled}; background: {hover}; }}
 
 QPushButton#primary {{
     background-color: {_GREEN};
@@ -74,21 +112,21 @@ QPushButton#primary {{
     padding: 12px 32px;
     border-radius: 24px;
 }}
-QPushButton#primary:hover  {{ background-color: {_GREEN_DARK}; }}
+QPushButton#primary:hover   {{ background-color: {_GREEN_DARK}; }}
 QPushButton#primary:pressed {{ background-color: #148a3e; }}
 
 QPushButton#showing {{
-    background-color: #e6f4ea;
-    border: 1px solid #a8d5b5;
-    color: #2d6a4f;
+    background-color: {show_bg};
+    border: 1px solid {show_bd};
+    color: {show_fg};
     font-size: 11px;
     padding: 3px 8px;
     border-radius: 4px;
 }}
 QPushButton#hiding {{
-    background-color: #fdecea;
-    border: 1px solid #f4a8a0;
-    color: #b71c1c;
+    background-color: {hide_bg};
+    border: 1px solid {hide_bd};
+    color: {hide_fg};
     font-size: 11px;
     padding: 3px 8px;
     border-radius: 4px;
@@ -96,47 +134,43 @@ QPushButton#hiding {{
 
 /* ── inputs ──────────────────────────────────────────── */
 QLineEdit {{
-    background-color: #ffffff;
-    border: 1px solid #d0d0d0;
+    background-color: {input_bg};
+    border: 1px solid {border};
     border-radius: 6px;
     padding: 7px 12px;
     font-size: 13px;
-    color: #1a1a1a;
+    color: {text};
     selection-background-color: {_GREEN};
 }}
-QLineEdit:focus {{
-    border-color: {_GREEN};
-}}
+QLineEdit:focus {{ border-color: {_GREEN}; }}
 
 /* ── tabs ────────────────────────────────────────────── */
 QTabWidget::pane {{
-    border: 1px solid #e0e0e0;
+    border: 1px solid {border};
     border-radius: 0 0 8px 8px;
-    background-color: #ffffff;
+    background-color: {pane_bg};
     top: -1px;
 }}
-QTabBar {{
-    background: transparent;
-}}
+QTabBar {{ background: transparent; }}
 QTabBar::tab {{
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
     padding: 9px 20px;
-    color: #888;
+    color: {muted};
     font-size: 13px;
     margin-right: 2px;
 }}
 QTabBar::tab:selected {{
-    color: #1a1a1a;
+    color: {text};
     font-weight: 600;
     border-bottom: 2px solid {_GREEN};
 }}
-QTabBar::tab:hover:!selected {{ color: #444; }}
+QTabBar::tab:hover:!selected {{ color: {text}; }}
 
 /* ── list widget ─────────────────────────────────────── */
 QListWidget {{
-    background-color: #ffffff;
+    background-color: {pane_bg};
     border: none;
     outline: 0;
 }}
@@ -144,36 +178,30 @@ QListWidget::item {{
     padding: 5px 4px;
     border-radius: 4px;
 }}
-QListWidget::item:hover {{ background-color: #f0f0f0; }}
-QListWidget::item:selected {{ background-color: #e6f4ea; color: #1a1a1a; }}
+QListWidget::item:hover    {{ background-color: {hover}; }}
+QListWidget::item:selected {{ background-color: {sel_bg}; color: {text}; }}
 
 /* ── table ───────────────────────────────────────────── */
 QTableView {{
-    background-color: #ffffff;
-    alternate-background-color: #fafafa;
-    border: 1px solid #e0e0e0;
+    background-color: {surface};
+    alternate-background-color: {alt_row};
+    border: 1px solid {border};
     border-radius: 8px;
     gridline-color: transparent;
-    selection-background-color: #e6f4ea;
-    selection-color: #1a1a1a;
+    selection-background-color: {sel_bg};
+    selection-color: {text};
     outline: 0;
 }}
-QTableView::item {{
-    padding: 0 8px;
-    border: none;
-}}
-QTableView::item:selected {{
-    background-color: #e6f4ea;
-    color: #1a1a1a;
-}}
+QTableView::item {{ padding: 0 8px; border: none; }}
+QTableView::item:selected {{ background-color: {sel_bg}; color: {text}; }}
 QHeaderView::section {{
-    background-color: #f7f7f7;
+    background-color: {hdr_bg};
     border: none;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid {border};
     padding: 8px 10px;
     font-weight: 700;
     font-size: 11px;
-    color: #888;
+    color: {muted};
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }}
@@ -181,25 +209,17 @@ QHeaderView::section:first {{ border-radius: 8px 0 0 0; }}
 
 /* ── scrollbars ──────────────────────────────────────── */
 QScrollBar:vertical {{
-    width: 8px;
-    background: transparent;
-    margin: 0;
-    border: none;
+    width: 8px; background: transparent; margin: 0; border: none;
 }}
 QScrollBar::handle:vertical {{
-    background: #d0d0d0;
-    border-radius: 4px;
-    min-height: 30px;
+    background: {scroll}; border-radius: 4px; min-height: 30px;
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 QScrollBar:horizontal {{
-    height: 8px;
-    background: transparent;
+    height: 8px; background: transparent;
 }}
 QScrollBar::handle:horizontal {{
-    background: #d0d0d0;
-    border-radius: 4px;
-    min-width: 30px;
+    background: {scroll}; border-radius: 4px; min-width: 30px;
 }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 
@@ -207,11 +227,11 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 QGroupBox {{
     font-size: 11px;
     font-weight: 700;
-    color: #888;
+    color: {muted};
     text-transform: uppercase;
     letter-spacing: 0.5px;
     border: none;
-    border-top: 1px solid #e8e8e8;
+    border-top: 1px solid {border};
     margin-top: 8px;
     padding-top: 16px;
     background: transparent;
@@ -226,15 +246,12 @@ QGroupBox::title {{
 QProgressBar {{
     border: none;
     border-radius: 3px;
-    background-color: #e8e8e8;
+    background-color: {border};
     height: 6px;
     text-align: center;
     color: transparent;
 }}
-QProgressBar::chunk {{
-    background-color: {_GREEN};
-    border-radius: 3px;
-}}
+QProgressBar::chunk {{ background-color: {_GREEN}; border-radius: 3px; }}
 """
 
 
@@ -841,7 +858,7 @@ class LibraryWidget(QWidget):
                   self.vibe_panel, self.energy_panel):
             gv_layout.addWidget(p)
             p.changed.connect(self.refresh)
-        tabs.addTab(gv, "Genres & Vibes")
+        tabs.addTab(gv, "Genre & Vibe")
 
         # Tab 2 — Artists
         ar = QWidget()
@@ -1173,10 +1190,15 @@ class MainWindow(QMainWindow):
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _is_dark(app) -> bool:
+    from PyQt6.QtGui import QPalette
+    return app.palette().color(QPalette.ColorRole.Window).lightness() < 128
+
+
 def main() -> None:
     import sys
     app = QApplication(sys.argv)
-    app.setStyleSheet(STYLESHEET)
+    app.setStyleSheet(_build_stylesheet(_is_dark(app)))
     app.setApplicationName("VibeThePlaylist")
     win = MainWindow()
     win.show()
