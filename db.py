@@ -52,7 +52,6 @@ CREATE TABLE IF NOT EXISTS labels (
     genre_buckets TEXT,   -- json list
     subgenres     TEXT,   -- json list (precise, nested under genre_buckets)
     energy_band   TEXT,
-    moods         TEXT,   -- json list
     vibes         TEXT,   -- json list
     method        TEXT,
     classified_at TEXT,
@@ -261,11 +260,11 @@ def upsert_labels(rows: Iterable[dict]) -> None:
     payload = [{"subgenres": "[]", **r} for r in rows]
     with connect() as conn:
         conn.executemany(
-            "INSERT INTO labels(track_id, genre_buckets, subgenres, energy_band, moods, vibes, method, classified_at) "
-            "VALUES(:track_id, :genre_buckets, :subgenres, :energy_band, :moods, :vibes, :method, :classified_at) "
+            "INSERT INTO labels(track_id, genre_buckets, subgenres, energy_band, vibes, method, classified_at) "
+            "VALUES(:track_id, :genre_buckets, :subgenres, :energy_band, :vibes, :method, :classified_at) "
             "ON CONFLICT(track_id) DO UPDATE SET genre_buckets=excluded.genre_buckets, "
             "subgenres=excluded.subgenres, energy_band=excluded.energy_band, "
-            "moods=excluded.moods, vibes=excluded.vibes, "
+            "vibes=excluded.vibes, "
             "method=excluded.method, classified_at=excluded.classified_at",
             payload,
         )

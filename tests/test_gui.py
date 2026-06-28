@@ -11,7 +11,6 @@ def test_option_lists_derive_from_config():
     assert gui.SUBGENRES == [sg for subs in config.SUBGENRE_BUCKETS.values() for sg in subs]
     assert gui.VIBES == list(config.VIBE_RULES.keys()) + [config.DEFAULT_VIBE]
     assert gui.ENERGIES == [b[2] for b in config.ENERGY_BANDS]
-    assert gui.MOODS == list(config.MOOD_TAGS.keys())
 
 
 def test_load_rows_returns_track_ids_and_labels(seeded_db):
@@ -50,13 +49,13 @@ def test_selection_toggle_and_mode():
     assert s.included() == set() and s.excluded() == set()
 
 
-def _row(genres=(), subgenres=(), vibes=(), energy="mid", moods=(), artist="A", album="X"):
+def _row(genres=(), subgenres=(), vibes=(), energy="mid", artist="A", album="X"):
     return {"genres": list(genres), "subgenres": list(subgenres), "vibes": list(vibes),
-            "energy": energy, "moods": list(moods), "artist": artist, "album": album}
+            "energy": energy, "artist": artist, "album": album}
 
 
 def _filters(**kw):
-    empty = {k: set() for k in ("g", "sg", "v", "e", "m", "ar", "al")}
+    empty = {k: set() for k in ("g", "sg", "v", "e", "ar", "al")}
     inc = {**empty, **{k[4:]: set(v) for k, v in kw.items() if k.startswith("inc_")}}
     exc = {**empty, **{k[4:]: set(v) for k, v in kw.items() if k.startswith("exc_")}}
     return inc, exc

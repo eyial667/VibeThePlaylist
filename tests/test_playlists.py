@@ -8,7 +8,7 @@ import playlists
 
 def _label(tid, genres, vibes):
     return {"track_id": tid, "genre_buckets": json.dumps(genres), "energy_band": "high",
-            "moods": "[]", "vibes": json.dumps(vibes), "method": "rules", "classified_at": "t"}
+            "vibes": json.dumps(vibes), "method": "rules", "classified_at": "t"}
 
 
 def _seed_labels(rows):

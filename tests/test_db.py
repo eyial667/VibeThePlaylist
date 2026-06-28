@@ -59,7 +59,7 @@ def test_migrate_adds_subgenres_column_to_old_labels(temp_db):
         conn.execute("DROP TABLE labels")
         conn.execute(
             "CREATE TABLE labels (track_id TEXT PRIMARY KEY, genre_buckets TEXT, "
-            "energy_band TEXT, moods TEXT, vibes TEXT, method TEXT, classified_at TEXT)"
+            "energy_band TEXT, vibes TEXT, method TEXT, classified_at TEXT)"
         )
     db.init()  # runs the migration
     with db.connect() as conn:
@@ -71,7 +71,7 @@ def test_migrate_adds_subgenres_column_to_old_labels(temp_db):
 def test_labels_upsert_overwrites(temp_db):
     db.upsert_tracks([_track("t1")])
     row = {"track_id": "t1", "genre_buckets": "[]", "energy_band": "low",
-           "moods": "[]", "vibes": "[]", "method": "rules", "classified_at": "t"}
+           "vibes": "[]", "method": "rules", "classified_at": "t"}
     db.upsert_labels([row])
     db.upsert_labels([{**row, "energy_band": "high"}])
     with db.connect() as conn:

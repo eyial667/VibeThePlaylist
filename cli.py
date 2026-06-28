@@ -253,7 +253,7 @@ def main() -> None:
     cl.set_defaults(func=cmd_classify)
     sub.add_parser("all").set_defaults(func=cmd_all)
 
-    lm = sub.add_parser("llm", help="refine mood/energy/vibe with Claude (needs ANTHROPIC_API_KEY)")
+    lm = sub.add_parser("llm", help="refine energy/vibe with Claude (needs ANTHROPIC_API_KEY)")
     lm.add_argument("--force", action="store_true", help="re-refine all tracks, even already-done ones")
     lm.set_defaults(func=cmd_llm)
 

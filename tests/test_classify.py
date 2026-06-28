@@ -95,54 +95,43 @@ def test_classify_all_subgenres_empty_falls_back(temp_db):
     assert json.loads(row["subgenres"]) == []
 
 
-# --- moods -----------------------------------------------------------------
-def test_match_moods():
-    assert "energetic" in classify._match_moods(["energetic", "banger"])
-    assert classify._match_moods(["nonsense"]) == []
-
-
 # --- energy banding --------------------------------------------------------
 def test_energy_band_from_features():
-    assert classify._energy_band(0.9, [], [], []) == "high"
-    assert classify._energy_band(0.5, [], [], []) == "mid"
-    assert classify._energy_band(0.1, [], [], []) == "low"
-
-
-def test_energy_band_inferred_from_moods_when_no_features():
-    assert classify._energy_band(None, [], ["energetic"], []) == "high"
-    assert classify._energy_band(None, [], ["chill"], []) == "low"
+    assert classify._energy_band(0.9, [], []) == "high"
+    assert classify._energy_band(0.5, [], []) == "mid"
+    assert classify._energy_band(0.1, [], []) == "low"
 
 
 def test_energy_band_subgenre_hint():
     # "cloud rap" tag should pull a Hip-hop/Rap track down from the bucket default
-    assert classify._energy_band(None, ["cloud rap"], [], ["Hip-hop/Rap"]) == "mid"
+    assert classify._energy_band(None, ["cloud rap"], ["Hip-hop/Rap"]) == "mid"
 
 
 def test_energy_band_genre_fallback_when_no_signal():
-    # no features, no mood, no sub-genre hint -> per-bucket default (never None for known genre)
-    assert classify._energy_band(None, ["french", "rap"], [], ["Hip-hop/Rap"]) == "high"
-    assert classify._energy_band(None, [], [], ["Jazz"]) == "low"
+    # no sub-genre hint -> per-bucket default (never None for known genre)
+    assert classify._energy_band(None, ["french", "rap"], ["Hip-hop/Rap"]) == "high"
+    assert classify._energy_band(None, [], ["Jazz"]) == "low"
 
 
 def test_energy_band_none_only_without_any_genre():
-    assert classify._energy_band(None, [], [], []) is None
+    assert classify._energy_band(None, [], []) is None
 
 
 # --- vibe rules ------------------------------------------------------------
 def test_match_vibes_high_energy_electronic_is_workout():
-    vibes = classify._match_vibes("high", ["Electronic"], ["energetic"])
+    vibes = classify._match_vibes("high", ["Electronic"])
     assert "Workout" in vibes
 
 
 def test_match_vibes_genre_fallback_when_nothing_fires():
-    # No mood/energy signal, but a known genre -> genre fallback vibes (not empty)
-    vibes = classify._match_vibes(None, ["Hip-hop/Rap"], [])
+    # No energy signal, but a known genre -> genre fallback vibes (not empty)
+    vibes = classify._match_vibes(None, ["Hip-hop/Rap"])
     assert vibes == config.GENRE_VIBES["Hip-hop/Rap"]
     assert config.DEFAULT_VIBE not in vibes
 
 
 def test_match_vibes_default_only_without_known_genre():
-    assert classify._match_vibes(None, ["NoSuchBucket"], []) == [config.DEFAULT_VIBE]
+    assert classify._match_vibes(None, ["NoSuchBucket"]) == [config.DEFAULT_VIBE]
 
 
 # --- end to end ------------------------------------------------------------
@@ -160,7 +149,6 @@ def test_classify_all_labels_seeded_library(seeded_db):
     t2 = labels["t2"]
     assert json.loads(t2["genre_buckets"]) == ["Folk/Acoustic"]
     assert t2["energy_band"] == "low"
-    assert "melancholic" in json.loads(t2["moods"])
 
 
 def test_classify_all_is_idempotent(seeded_db):
@@ -194,7 +182,7 @@ def test_classify_preserves_llm_labels(seeded_db):
     # simulate an LLM-refined track, then re-run the free classify
     db.upsert_labels([{"track_id": "t1", "genre_buckets": json.dumps(["Electronic"]),
                        "subgenres": json.dumps(["House"]),
-                       "energy_band": "mid", "moods": json.dumps(["dreamy"]),
+                       "energy_band": "mid",
                        "vibes": json.dumps(["Late-night"]), "method": "llm",
                        "classified_at": "now"}])
     classify.classify_all()  # default: must NOT overwrite method='llm'
