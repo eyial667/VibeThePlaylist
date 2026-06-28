@@ -9,6 +9,7 @@ Double-click a row to play/stop its 30-second preview.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import urllib.request
@@ -67,6 +68,12 @@ except (ImportError, OSError):
 
 import config
 import db
+
+log = logging.getLogger(__name__)
+_DEFAULT_PLAYLIST_SAVE_ERROR_MESSAGE = (
+    "Spotify could not save the playlist. Log out and sign back in, then try again. "
+    "If that does not help, try changing the playlist name and retry."
+)
 
 # ---------------------------------------------------------------------------
 # Option lists (derived from config so they stay in sync)
@@ -562,7 +569,8 @@ class _PlaylistWorker(QThread):
             full = playlists.create_named_playlist(sp, self._name, self._track_ids)
             self.finished.emit(full)
         except Exception as exc:
-            self.failed.emit(str(exc))
+            log.exception("Failed to save playlist from GUI: %r", self._name)
+            self.failed.emit(getattr(exc, "user_message", _DEFAULT_PLAYLIST_SAVE_ERROR_MESSAGE))
 
 
 # ---------------------------------------------------------------------------

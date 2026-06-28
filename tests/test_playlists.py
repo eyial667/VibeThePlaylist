@@ -4,6 +4,7 @@ import json
 import config
 import db
 import playlists
+from spotipy import SpotifyException
 
 
 def _label(tid, genres, vibes):
@@ -86,3 +87,40 @@ def test_create_named_playlist_does_not_double_prefix(temp_db, fake_spotify):
     name = f"{config.PLAYLIST_PREFIX}Already"
     full = playlists.create_named_playlist(sp, name, ["t1"])
     assert full == name  # prefix not applied twice
+
+
+def test_create_named_playlist_retries_with_ascii_prefix_on_invalid_request(temp_db, fake_spotify):
+    class RejectsEmojiSpotify(fake_spotify):
+        def user_playlist_create(self, user, name, public=False, description=""):
+            if not name.isascii():
+                raise SpotifyException(400, "invalid_request", {"error_description": "Bad request"})
+            return super().user_playlist_create(user, name, public=public, description=description)
+
+    sp = RejectsEmojiSpotify()
+    full = playlists.create_named_playlist(sp, "Chill", ["t1"])
+    assert full == "VibeThePlaylist - Chill"
+    assert sp.created[full]
+    assert sp.items[sp.created[full]] == ["spotify:track:t1"]
+
+
+def test_create_named_playlist_updates_existing_ascii_fallback(temp_db, fake_spotify):
+    existing = {"VibeThePlaylist - Chill": "pl1"}
+    sp = fake_spotify(existing=existing)
+    full = playlists.create_named_playlist(sp, "Chill", ["t1", "t2"])
+    assert full == "VibeThePlaylist - Chill"
+    assert sp.created == existing  # updated the existing fallback playlist instead of creating a new one
+    assert sp.items["pl1"] == ["spotify:track:t1", "spotify:track:t2"]
+
+
+def test_create_named_playlist_wraps_spotify_errors_with_user_message(temp_db, fake_spotify):
+    class ScopeFailureSpotify(fake_spotify):
+        def playlist_replace_items(self, playlist_id, uris):
+            raise SpotifyException(403, "insufficient_scope", {"error_description": "Missing scope"})
+
+    sp = ScopeFailureSpotify()
+    try:
+        playlists.create_named_playlist(sp, "Chill", ["t1"])
+    except playlists.PlaylistError as exc:
+        assert str(exc) == playlists._SCOPE_MESSAGE
+    else:
+        raise AssertionError("Expected PlaylistError")
