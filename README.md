@@ -88,7 +88,43 @@ shipping a `.env` file to testers:
 1. Copy `local_settings.example.py` to `local_settings.py`
 2. Fill in the shared Spotify / Last.fm values on **your** machine only
 3. Keep `local_settings.py` uncommitted (it is gitignored)
-4. Build the GUI with the included `VibeThePlaylist.spec`
+4. Install PyInstaller in your env:
+
+   ```bash
+   conda activate Spotify
+   pip install pyinstaller
+   ```
+
+5. Build the GUI with the included `VibeThePlaylist.spec`
+
+PyInstaller builds for the **current OS only**, so create each package on that OS:
+
+### Windows
+
+```bash
+conda activate Spotify
+pyinstaller --clean VibeThePlaylist.spec
+```
+
+Output: `dist/VibeThePlaylist/VibeThePlaylist.exe`
+
+### macOS
+
+```bash
+conda activate Spotify
+pyinstaller --clean VibeThePlaylist.spec
+```
+
+Output: `dist/VibeThePlaylist.app`
+
+### Linux
+
+```bash
+conda activate Spotify
+pyinstaller --clean VibeThePlaylist.spec
+```
+
+Output: `dist/VibeThePlaylist/VibeThePlaylist`
 
 Packaged builds now store their writable state (DB, token cache, preview cache)
 under the user's OS app-data directory instead of the repository checkout.
