@@ -16,6 +16,30 @@ def _token_cache_path() -> str:
     return str(config.TOKEN_CACHE_PATH)
 
 
+def _pkce_config_error() -> str:
+    if config.PACKAGED_APP:
+        return (
+            "Spotify login is not configured in this build. Rebuild the app with a bundled "
+            "SPOTIFY_CLIENT_ID before sharing it."
+        )
+    return (
+        "Spotify login is not configured. Set SPOTIFY_CLIENT_ID in your environment or "
+        "copy local_settings.example.py to local_settings.py and fill it in."
+    )
+
+
+def _oauth_config_error() -> str:
+    if config.PACKAGED_APP:
+        return (
+            "Spotify credentials are not configured in this build. Rebuild the app with "
+            "bundled SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET."
+        )
+    return (
+        "Missing Spotify credentials. Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in "
+        "your environment or copy local_settings.example.py to local_settings.py and fill it in."
+    )
+
+
 def _get_cached_token() -> dict | None:
     return CacheFileHandler(cache_path=_token_cache_path()).get_cached_token()
 
@@ -58,10 +82,7 @@ def is_authenticated() -> bool:
 def get_client_pkce() -> spotipy.Spotify:
     """PKCE-based client — no client secret required. Used by the GUI."""
     if not config.SPOTIFY_CLIENT_ID:
-        raise RuntimeError(
-            "Spotify login is not configured. Set SPOTIFY_CLIENT_ID in your environment "
-            "or local_settings.py before launching the app."
-        )
+        raise RuntimeError(_pkce_config_error())
     _clear_cached_token_if_scope_mismatch()
     auth = SpotifyPKCE(
         client_id=config.SPOTIFY_CLIENT_ID,
@@ -83,10 +104,7 @@ def logout() -> None:
 
 def get_client() -> spotipy.Spotify:
     if not (config.SPOTIFY_CLIENT_ID and config.SPOTIFY_CLIENT_SECRET):
-        raise RuntimeError(
-            "Missing Spotify credentials. Set SPOTIFY_CLIENT_ID and "
-            "SPOTIFY_CLIENT_SECRET in your environment or local_settings.py."
-        )
+        raise RuntimeError(_oauth_config_error())
     _clear_cached_token_if_scope_mismatch()
     auth = SpotifyOAuth(
         client_id=config.SPOTIFY_CLIENT_ID,

@@ -63,5 +63,5 @@ if sys.platform == "darwin":
         coll,
         name="VibeThePlaylist.app",
         icon=str(ICON_ICNS) if ICON_ICNS.exists() else None,
-        bundle_identifier="com.eyial667.vibetheplaylist",
+        bundle_identifier="com.vibetheplaylist.desktop",
     )
