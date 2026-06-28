@@ -35,6 +35,20 @@ def _match_buckets(raw_genres: list[str]) -> list[str]:
     return ordered[:cap]
 
 
+def _match_buckets_agreed(spotify_genres: list[str], lfm_tags: list[str]) -> list[str]:
+    """Match buckets requiring both sources to agree; falls back to Last.fm, then Spotify."""
+    has_lfm = any(t != "__none__" for t in lfm_tags)
+    spotify_buckets = _match_buckets(spotify_genres) if spotify_genres else []
+    lfm_buckets = _match_buckets(lfm_tags) if has_lfm else []
+    spotify_set = {b for b in spotify_buckets if b != config.DEFAULT_GENRE}
+    lfm_set = {b for b in lfm_buckets if b != config.DEFAULT_GENRE}
+    agreed = spotify_set & lfm_set
+    if agreed:
+        return [b for b in spotify_buckets if b in agreed]
+    result = lfm_buckets if has_lfm else spotify_buckets
+    return result or [config.DEFAULT_GENRE]
+
+
 def _match_subgenres(raw_genres: list[str], tags: list[str], genres: list[str]) -> list[str]:
     """Pick precise subgenres nested under the track's already-matched buckets.
 
@@ -165,9 +179,7 @@ def classify_all(overwrite_llm: bool = False) -> int:
         for aid in json.loads(t["artist_ids"]):
             raw_genres.extend(artist_genres.get(aid, []))
         tags = tags_by_track.get(tid, [])
-        raw_genres_plus = raw_genres + tags  # tags also carry genre hints
-
-        genres = _match_buckets(raw_genres_plus)
+        genres = _match_buckets_agreed(raw_genres, tags)
         subgenres = _match_subgenres(raw_genres, tags, genres)
         moods = _match_moods(tags)
         band = _energy_band(features.get(tid), tags, moods, genres)
