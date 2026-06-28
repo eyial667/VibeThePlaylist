@@ -843,22 +843,29 @@ class LibraryWidget(QWidget):
         tabs = QTabWidget()
         tabs.setMaximumHeight(270)
 
-        # Tab 1 — Genres & Vibes
-        gv = QWidget()
-        gv_layout = QHBoxLayout(gv)
-        gv_layout.setContentsMargins(12, 8, 12, 8)
-        gv_layout.setSpacing(16)
-        self.genre_panel    = FilterPanel("Genres",    GENRES,    parent=gv)
+        # Tab 1 — Genre
+        g = QWidget()
+        g_layout = QHBoxLayout(g)
+        g_layout.setContentsMargins(12, 8, 12, 8)
+        g_layout.setSpacing(16)
+        self.genre_panel    = FilterPanel("Genres",    GENRES,    parent=g)
         self.subgenre_panel = FilterPanel("Subgenres", SUBGENRES,
-                                          searchable=True, parent=gv)
-        self.vibe_panel     = FilterPanel("Vibes",     VIBES,     parent=gv)
-        self.energy_panel   = FilterPanel("Energy",    ENERGIES,  parent=gv)
+                                          searchable=True, parent=g)
+        self.energy_panel   = FilterPanel("Energy",    ENERGIES,  parent=g)
         self.energy_panel.setMaximumWidth(130)
-        for p in (self.genre_panel, self.subgenre_panel,
-                  self.vibe_panel, self.energy_panel):
-            gv_layout.addWidget(p)
+        for p in (self.genre_panel, self.subgenre_panel, self.energy_panel):
+            g_layout.addWidget(p)
             p.changed.connect(self.refresh)
-        tabs.addTab(gv, "Genre & Vibe")
+        tabs.addTab(g, "Genre")
+
+        # Tab 2 — Vibe
+        v = QWidget()
+        v_layout = QHBoxLayout(v)
+        v_layout.setContentsMargins(12, 8, 12, 8)
+        self.vibe_panel = FilterPanel("Vibes", VIBES, parent=v)
+        v_layout.addWidget(self.vibe_panel)
+        self.vibe_panel.changed.connect(self.refresh)
+        tabs.addTab(v, "Vibe")
 
         # Tab 2 — Artists
         ar = QWidget()
@@ -1007,7 +1014,7 @@ class LibraryWidget(QWidget):
         q = self.search_box.text().strip().lower()
         shown = [
             r for r in self.rows
-            if row_matches(r, inc, exc, any_mode=True)
+            if row_matches(r, inc, exc, any_mode=False)
             and (not q or q in r["artist"].lower() or q in r["title"].lower())
         ]
         self.model.update_rows(shown)
