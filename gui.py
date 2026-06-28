@@ -72,7 +72,7 @@ import db
 log = logging.getLogger(__name__)
 _DEFAULT_PLAYLIST_SAVE_ERROR_MESSAGE = (
     "Spotify could not save the playlist. Log out and sign back in, then try again. "
-    "If that does not help, try a shorter playlist name with only letters, numbers, and spaces."
+    "If that does not help, try changing the playlist name and retry."
 )
 
 # ---------------------------------------------------------------------------

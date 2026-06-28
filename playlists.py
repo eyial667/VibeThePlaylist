@@ -11,6 +11,8 @@ import db
 
 log = logging.getLogger(__name__)
 _ASCII_PLAYLIST_PREFIX = "VibeThePlaylist - "
+_TOKEN_ERROR_MARKERS = ("invalid token", "expired token", "token rejected", "access token")
+_PERMISSION_ERROR_MARKERS = ("insufficient scope", "missing scope", "missing permission")
 
 
 class PlaylistError(RuntimeError):
@@ -58,8 +60,7 @@ def _is_permission_error(exc: spotipy.SpotifyException, detail_lc: str) -> bool:
     return (
         exc.http_status == 403
         or exc.code == "insufficient_scope"
-        or "scope" in detail_lc
-        or "permission" in detail_lc
+        or any(marker in detail_lc for marker in _PERMISSION_ERROR_MARKERS)
     )
 
 
@@ -70,8 +71,13 @@ def _is_invalid_request(exc: spotipy.SpotifyException) -> bool:
 def _playlist_error_message(exc: spotipy.SpotifyException) -> str:
     detail_lc = _spotify_error_detail(exc).lower()
     if exc.http_status == 429:
-        return "Spotify is rate-limiting playlist changes. Wait a minute, then try again."
-    if exc.http_status == 401 or "token" in detail_lc:
+        retry_after = ""
+        if isinstance(exc.headers, dict):
+            wait = exc.headers.get("Retry-After")
+            if wait:
+                retry_after = f" Wait about {wait} seconds, then try again."
+        return f"Spotify is rate-limiting playlist changes.{retry_after or ' Please wait a bit, then try again.'}"
+    if exc.http_status == 401 or any(marker in detail_lc for marker in _TOKEN_ERROR_MARKERS):
         return "Spotify rejected your login. Log out, sign back in, and try again."
     if _is_permission_error(exc, detail_lc):
         return "Spotify did not grant playlist-edit access. Log out, sign back in, and approve playlist permissions."
@@ -83,6 +89,7 @@ def _playlist_error_message(exc: spotipy.SpotifyException) -> str:
 def _should_retry_with_ascii_name(exc: spotipy.SpotifyException, name: str, fallback: str) -> bool:
     return (
         fallback != name
+        and fallback.isascii()
         and not name.isascii()
         and _is_invalid_request(exc)
     )
