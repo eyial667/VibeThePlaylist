@@ -49,12 +49,11 @@ def _default_data_dir() -> Path:
     if not PACKAGED_APP:
         return ROOT / "data"
     if os.name == "nt":
-        base_env = os.getenv("APPDATA") or os.getenv("LOCALAPPDATA")
+        base_env = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA")
         if base_env:
             base = Path(base_env)
         else:
-            base = Path.home() / "AppData" / "Roaming"
-            base.mkdir(parents=True, exist_ok=True)
+            base = Path.home() / "AppData" / "Local"
     elif sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support"
     else:

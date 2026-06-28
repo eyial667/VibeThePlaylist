@@ -93,7 +93,7 @@ def get_client_pkce() -> spotipy.Spotify:
 def logout() -> None:
     """Remove the cached token so the next launch shows the login screen."""
     try:
-        os.remove(config.TOKEN_CACHE_PATH)
+        os.remove(str(config.TOKEN_CACHE_PATH))
     except FileNotFoundError:
         pass
 
