@@ -68,6 +68,25 @@ def test_migrate_adds_subgenres_column_to_old_labels(temp_db):
     db.init()  # idempotent: a second run must not error
 
 
+def test_clean_drops_stale_columns(temp_db):
+    # Simulate a DB that still has the old moods column.
+    with db.connect() as conn:
+        conn.execute("ALTER TABLE labels ADD COLUMN moods TEXT")
+    with db.connect() as conn:
+        cols_before = {r["name"] for r in conn.execute("PRAGMA table_info(labels)")}
+    assert "moods" in cols_before
+
+    changes = db.clean()
+    assert any("moods" in c for c in changes)
+
+    with db.connect() as conn:
+        cols_after = {r["name"] for r in conn.execute("PRAGMA table_info(labels)")}
+    assert "moods" not in cols_after
+
+    # Idempotent: second run reports nothing.
+    assert db.clean() == []
+
+
 def test_labels_upsert_overwrites(temp_db):
     db.upsert_tracks([_track("t1")])
     row = {"track_id": "t1", "genre_buckets": "[]", "energy_band": "low",

@@ -241,6 +241,17 @@ def cmd_all(args) -> None:
     cmd_classify(args)
 
 
+def cmd_clean(args) -> None:
+    db.init()
+    changes = db.clean()
+    if changes:
+        for c in changes:
+            print(f"  {c}")
+        print(f"Done: {len(changes)} change(s).")
+    else:
+        print("DB is already up to date — nothing to clean.")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="Spotify liked-songs genre/vibe classifier")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -252,6 +263,9 @@ def main() -> None:
                     help="reclassify everything, discarding LLM-refined labels")
     cl.set_defaults(func=cmd_classify)
     sub.add_parser("all").set_defaults(func=cmd_all)
+    sub.add_parser("clean",
+                   help="drop stale DB columns to match the current schema"
+                   ).set_defaults(func=cmd_clean)
 
     lm = sub.add_parser("llm", help="refine energy/vibe with Claude (needs ANTHROPIC_API_KEY)")
     lm.add_argument("--force", action="store_true", help="re-refine all tracks, even already-done ones")

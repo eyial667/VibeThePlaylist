@@ -114,6 +114,14 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("labels", "subgenres", "TEXT"),  # from the subgenre classification work
 ]
 
+# Columns that were removed from the schema and should be dropped from old DBs.
+# `python cli.py clean` applies these; `ALTER TABLE DROP COLUMN` requires SQLite
+# 3.35+ (2021-03), which is bundled in all supported Python versions (3.11+).
+# (table, column) — skipped silently when the column is already absent.
+_COLUMN_DROPS: list[tuple[str, str]] = [
+    ("labels", "moods"),  # mood classification removed (almost no songs had one)
+]
+
 
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
@@ -140,6 +148,22 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
         cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+
+
+def clean() -> list[str]:
+    """Drop stale columns from an existing DB and return a description of each change.
+
+    Safe to run repeatedly — columns already absent are silently skipped.
+    Requires SQLite 3.35+ (ALTER TABLE DROP COLUMN), bundled in Python 3.11+.
+    """
+    changes: list[str] = []
+    with connect() as conn:
+        for table, column in _COLUMN_DROPS:
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if column in cols:
+                conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+                changes.append(f"dropped column {table}.{column}")
+    return changes
 
 
 # --- meta -----------------------------------------------------------------
