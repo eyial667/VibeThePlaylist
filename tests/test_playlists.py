@@ -114,7 +114,7 @@ def test_create_named_playlist_updates_existing_ascii_fallback(temp_db, fake_spo
 
 def test_create_named_playlist_wraps_spotify_errors_with_user_message(temp_db, fake_spotify):
     class ScopeFailureSpotify(fake_spotify):
-        def playlist_replace_items(self, pid, uris):
+        def playlist_replace_items(self, playlist_id, uris):
             raise SpotifyException(403, "insufficient_scope", {"error_description": "Missing scope"})
 
     sp = ScopeFailureSpotify()

@@ -10,7 +10,9 @@ import config
 import db
 
 log = logging.getLogger(__name__)
-_ASCII_PLAYLIST_PREFIX = "VibeThePlaylist - "
+_ASCII_SAFE_PLAYLIST_PREFIX = "VibeThePlaylist - "
+_REAUTH_MESSAGE = "Spotify rejected your login. Log out, sign back in, and try again."
+_SCOPE_MESSAGE = "Spotify did not grant playlist-edit access. Log out, sign back in, and approve playlist permissions."
 _TOKEN_ERROR_MARKERS = ("invalid token", "expired token", "token rejected", "access token")
 _PERMISSION_ERROR_MARKERS = ("insufficient scope", "missing scope", "missing permission")
 
@@ -24,26 +26,27 @@ class PlaylistError(RuntimeError):
 
 
 def _strip_managed_prefix(name: str) -> str:
-    for prefix in (config.PLAYLIST_PREFIX, _ASCII_PLAYLIST_PREFIX):
+    for prefix in (config.PLAYLIST_PREFIX, _ASCII_SAFE_PLAYLIST_PREFIX):
         if name.startswith(prefix):
             return name[len(prefix) :]
     return name
 
 
 def _is_managed_playlist_name(name: str) -> bool:
-    return name.startswith(config.PLAYLIST_PREFIX) or name.startswith(_ASCII_PLAYLIST_PREFIX)
+    return name.startswith(config.PLAYLIST_PREFIX) or name.startswith(_ASCII_SAFE_PLAYLIST_PREFIX)
 
 
 def _managed_playlist_names(name: str) -> list[str]:
     base = _strip_managed_prefix(name).strip()
     primary = f"{config.PLAYLIST_PREFIX}{base}"
-    fallback = f"{_ASCII_PLAYLIST_PREFIX}{base}"
+    fallback = f"{_ASCII_SAFE_PLAYLIST_PREFIX}{base}"
     return [primary] if primary == fallback or primary.isascii() else [primary, fallback]
 
 
 def _spotify_error_detail(exc: spotipy.SpotifyException) -> str:
     parts: list[str] = []
     if isinstance(exc.msg, dict):
+        # Prefer Spotify's most user-relevant message field in priority order.
         for key in ("error_description", "error", "message"):
             value = exc.msg.get(key)
             if value:
@@ -57,15 +60,16 @@ def _spotify_error_detail(exc: spotipy.SpotifyException) -> str:
 
 
 def _is_permission_error(exc: spotipy.SpotifyException, detail_lc: str) -> bool:
+    code = str(getattr(exc, "code", "") or "")
     return (
         exc.http_status == 403
-        or exc.code == "insufficient_scope"
+        or code == "insufficient_scope"
         or any(marker in detail_lc for marker in _PERMISSION_ERROR_MARKERS)
     )
 
 
 def _is_invalid_request(exc: spotipy.SpotifyException) -> bool:
-    return exc.http_status == 400 or exc.code == "invalid_request"
+    return exc.http_status == 400 or str(getattr(exc, "code", "") or "") == "invalid_request"
 
 
 def _playlist_error_message(exc: spotipy.SpotifyException) -> str:
@@ -78,9 +82,9 @@ def _playlist_error_message(exc: spotipy.SpotifyException) -> str:
                 retry_after = f" Wait about {wait} seconds, then try again."
         return f"Spotify is rate-limiting playlist changes.{retry_after or ' Please wait a bit, then try again.'}"
     if exc.http_status == 401 or any(marker in detail_lc for marker in _TOKEN_ERROR_MARKERS):
-        return "Spotify rejected your login. Log out, sign back in, and try again."
+        return _REAUTH_MESSAGE
     if _is_permission_error(exc, detail_lc):
-        return "Spotify did not grant playlist-edit access. Log out, sign back in, and approve playlist permissions."
+        return _SCOPE_MESSAGE
     if _is_invalid_request(exc):
         return "Spotify rejected the playlist request. Try a shorter playlist name using letters, numbers, and spaces only."
     return "Spotify could not save the playlist right now. Please try again."
