@@ -518,8 +518,10 @@ class _PlaylistWorker(QThread):
 # ---------------------------------------------------------------------------
 
 _ENERGY_LABEL = {"low": "Low", "mid": "Mid", "high": "High"}
-_COLS         = ("", "Artist", "Song", "Album", "Genre", "Energy", "Vibe")
-_COL_WIDTHS   = (32,  190,     230,    190,     155,     75,       210)
+_COLS         = ("", "",   "Artist", "Song", "Album", "Genre", "Energy", "Vibe")
+_COL_WIDTHS   = (32,  30,  185,      225,    185,     150,     70,       200)
+_COL_PLAY     = 0
+_COL_CHECK    = 1
 
 
 class TrackTableModel(QAbstractTableModel):
@@ -527,6 +529,7 @@ class TrackTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._rows: list[dict] = []
         self._playing_id: str | None = None
+        self._checked_ids: set[str] = set()
 
     def rowCount(self, parent=QModelIndex()) -> int:
         return len(self._rows)
@@ -534,39 +537,65 @@ class TrackTableModel(QAbstractTableModel):
     def columnCount(self, parent=QModelIndex()) -> int:
         return len(_COLS)
 
+    def flags(self, index: QModelIndex) -> Qt.ItemFlag:
+        base = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if index.column() == _COL_CHECK:
+            return base | Qt.ItemFlag.ItemIsUserCheckable
+        return base
+
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
         if not index.isValid() or index.row() >= len(self._rows):
             return None
         row = self._rows[index.row()]
         col = index.column()
 
+        if role == Qt.ItemDataRole.CheckStateRole and col == _COL_CHECK:
+            return (Qt.CheckState.Checked if row["id"] in self._checked_ids
+                    else Qt.CheckState.Unchecked)
+
         if role == Qt.ItemDataRole.DisplayRole:
-            if col == 0:
+            if col == _COL_PLAY:
                 if row["id"] == self._playing_id:
                     return "▶"
                 return "♪" if row.get("preview_url") else ""
-            if col == 1: return row["artist"]
-            if col == 2: return row["title"]
-            if col == 3: return row["album"] or "—"
-            if col == 4: return ", ".join(row["genres"]) or "—"
-            if col == 5: return _ENERGY_LABEL.get(row.get("energy") or "", "—")
-            if col == 6: return ", ".join(row["vibes"]) or "—"
+            if col == _COL_CHECK: return None
+            if col == 2: return row["artist"]
+            if col == 3: return row["title"]
+            if col == 4: return row["album"] or "—"
+            if col == 5: return ", ".join(row["genres"]) or "—"
+            if col == 6: return _ENERGY_LABEL.get(row.get("energy") or "", "—")
+            if col == 7: return ", ".join(row["vibes"]) or "—"
 
         if role == Qt.ItemDataRole.BackgroundRole:
             if row["id"] == self._playing_id:
                 return QColor("#d4edda")
+            if row["id"] in self._checked_ids:
+                return QColor("#ddeeff")
 
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            if col == 0:
+            if col == _COL_PLAY:
                 return Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
             return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
 
-        if role == Qt.ItemDataRole.FontRole and col == 0:
+        if role == Qt.ItemDataRole.FontRole and col == _COL_PLAY:
             f = QFont()
             f.setPointSize(11)
             return f
 
         return None
+
+    def setData(self, index: QModelIndex, value, role: int = Qt.ItemDataRole.EditRole) -> bool:
+        if index.column() == _COL_CHECK and role == Qt.ItemDataRole.CheckStateRole:
+            row = self._rows[index.row()]
+            if value == Qt.CheckState.Checked.value or value == Qt.CheckState.Checked:
+                self._checked_ids.add(row["id"])
+            else:
+                self._checked_ids.discard(row["id"])
+            self.dataChanged.emit(index, index,
+                                  [Qt.ItemDataRole.CheckStateRole,
+                                   Qt.ItemDataRole.BackgroundRole])
+            return True
+        return False
 
     def headerData(self, section: int, orientation: Qt.Orientation,
                    role: int = Qt.ItemDataRole.DisplayRole):
@@ -579,11 +608,23 @@ class TrackTableModel(QAbstractTableModel):
         self._rows = rows
         self.endResetModel()
 
+    def clear_checked(self) -> None:
+        self._checked_ids.clear()
+        if self._rows:
+            self.dataChanged.emit(
+                self.index(0, _COL_CHECK),
+                self.index(len(self._rows) - 1, _COL_CHECK),
+                [Qt.ItemDataRole.CheckStateRole, Qt.ItemDataRole.BackgroundRole],
+            )
+
+    def checked_count(self) -> int:
+        return len(self._checked_ids)
+
     def set_playing(self, track_id: str | None) -> None:
         self._playing_id = track_id
         if self._rows:
-            top_left  = self.index(0, 0)
-            bot_right = self.index(len(self._rows) - 1, 0)
+            top_left  = self.index(0, _COL_PLAY)
+            bot_right = self.index(len(self._rows) - 1, _COL_PLAY)
             self.dataChanged.emit(top_left, bot_right,
                                   [Qt.ItemDataRole.DisplayRole,
                                    Qt.ItemDataRole.BackgroundRole])
@@ -855,8 +896,9 @@ class LibraryWidget(QWidget):
 
         for i, w in enumerate(_COL_WIDTHS):
             self.table.setColumnWidth(i, w)
-        self.table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Fixed)
+        for fixed_col in (_COL_PLAY, _COL_CHECK):
+            self.table.horizontalHeader().setSectionResizeMode(
+                fixed_col, QHeaderView.ResizeMode.Fixed)
 
         self.table.doubleClicked.connect(self._on_double_click)
 
@@ -956,9 +998,15 @@ class LibraryWidget(QWidget):
         root.addLayout(left, 3)
         root.addLayout(right, 2)
 
+        self.model.dataChanged.connect(self._on_model_data_changed)
+
         # ── cross-filter maps ────────────────────────────────────────────────
         self.artist_albums: dict[str, set[str]] = {}
         self.album_artists: dict[str, set[str]] = {}
+
+    def _on_model_data_changed(self, _tl, _br, roles) -> None:
+        if Qt.ItemDataRole.CheckStateRole in roles:
+            self.refresh()
 
     # ── data loading ────────────────────────────────────────────────────────
 
@@ -1029,10 +1077,13 @@ class LibraryWidget(QWidget):
         self.model.update_rows(shown)
 
         n, total = len(shown), len(self.rows)
-        self.count_lbl.setText(
-            f"{n} song{'s' if n != 1 else ''}"
-            + (f" of {total}" if n != total else "")
-        )
+        checked  = self.model.checked_count()
+        label    = f"{n} song{'s' if n != 1 else ''}"
+        if n != total:
+            label += f" of {total}"
+        if checked:
+            label += f"  ·  {checked} selected"
+        self.count_lbl.setText(label)
 
     def _toggle_match_mode(self) -> None:
         self._any_mode = not self._any_mode
@@ -1051,6 +1102,7 @@ class LibraryWidget(QWidget):
                   self.energy_panel, self.artist_panel, self.album_panel):
             p.reset()
         self.search_box.clear()
+        self.model.clear_checked()
         self.refresh()
 
     # ── preview playback ────────────────────────────────────────────────────
@@ -1133,20 +1185,26 @@ class LibraryWidget(QWidget):
         return " ".join(parts) if parts else "Filtered"
 
     def _create_playlist(self) -> None:
-        shown = self.model._rows
-        if not shown:
+        checked = self.model._checked_ids
+        if checked:
+            to_save = [r for r in self.rows if r["id"] in checked]
+            prompt  = f"{len(to_save)} selected song(s) will be added.\n\nPlaylist name:"
+        else:
+            to_save = self.model._rows
+            prompt  = f"{len(to_save)} shown song(s) will be added.\n\nPlaylist name:"
+        if not to_save:
             QMessageBox.warning(self, "Nothing to save",
                                 "No songs match the current filters.")
             return
         name, ok = QInputDialog.getText(
             self, "Save as Spotify playlist",
-            f"{len(shown)} song(s) will be added.\n\nPlaylist name:",
+            prompt,
             text=self._suggest_name(),
         )
         if not ok or not name.strip():
             return
         self.playlist_btn.setEnabled(False)
-        worker = _PlaylistWorker(name.strip(), [r["id"] for r in shown])
+        worker = _PlaylistWorker(name.strip(), [r["id"] for r in to_save])
         worker.finished.connect(lambda full: (
             self.playlist_btn.setEnabled(True),
             QMessageBox.information(
