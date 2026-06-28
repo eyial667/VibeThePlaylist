@@ -314,31 +314,37 @@ class Selection:
         return set(self.selected) if self.mode == EXCLUDE else set()
 
 
-def row_matches(row: dict, inc: dict, exc: dict, any_mode: bool) -> bool:
-    """Pure filter — identical to the original so tests keep passing."""
-    if exc["g"]  & set(row["genres"]):  return False
+def row_matches(row: dict, inc: dict, exc: dict, any_modes: dict[str, bool]) -> bool:
+    """Pure filter. Excludes are hard stops; includes use per-panel any_modes.
+
+    any_modes maps panel key → True (OR: any selected item matches) or
+    False (AND: all selected items must match). Cross-panel logic is always AND.
+    """
+    if exc["g"]  & set(row["genres"]):    return False
     if exc["sg"] & set(row["subgenres"]): return False
-    if exc["v"]  & set(row["vibes"]):   return False
-    if row["energy"] in exc["e"]:        return False
-    if row["artist"] in exc["ar"]:       return False
-    if row["album"]  in exc["al"]:       return False
-    checks = []
-    if any_mode:
-        if inc["g"]:  checks.append(bool(inc["g"]  & set(row["genres"])))
-        if inc["sg"]: checks.append(bool(inc["sg"] & set(row["subgenres"])))
-        if inc["v"]:  checks.append(bool(inc["v"]  & set(row["vibes"])))
-        if inc["e"]:  checks.append(row["energy"] in inc["e"])
-        if inc["ar"]: checks.append(row["artist"] in inc["ar"])
-        if inc["al"]: checks.append(row["album"]  in inc["al"])
-        return any(checks) if checks else True
-    else:
-        if inc["g"]:  checks.append(inc["g"]  <= set(row["genres"]))
-        if inc["sg"]: checks.append(inc["sg"] <= set(row["subgenres"]))
-        if inc["v"]:  checks.append(inc["v"]  <= set(row["vibes"]))
-        if inc["e"]:  checks.append(row["energy"] in inc["e"])
-        if inc["ar"]: checks.append(row["artist"] in inc["ar"])
-        if inc["al"]: checks.append(row["album"]  in inc["al"])
-        return all(checks) if checks else True
+    if exc["v"]  & set(row["vibes"]):     return False
+    if row["energy"] in exc["e"]:         return False
+    if row["artist"] in exc["ar"]:        return False
+    if row["album"]  in exc["al"]:        return False
+
+    def _set_panel(key: str, row_vals: list) -> bool:
+        s = inc[key]
+        if not s:
+            return True
+        rv = set(row_vals)
+        return bool(s & rv) if any_modes.get(key, True) else s <= rv
+
+    def _scalar(key: str, val: str) -> bool:
+        return not inc[key] or val in inc[key]
+
+    return (
+        _set_panel("g",  row["genres"])
+        and _set_panel("sg", row["subgenres"])
+        and _set_panel("v",  row["vibes"])
+        and _scalar("e",  row["energy"])
+        and _scalar("ar", row["artist"])
+        and _scalar("al", row["album"])
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -638,7 +644,7 @@ class TrackTableModel(QAbstractTableModel):
 # ---------------------------------------------------------------------------
 
 class FilterPanel(QGroupBox):
-    """A labelled, searchable list of checkboxes with a Show / Hide mode toggle."""
+    """A labelled, searchable list of checkboxes with Include/Exclude and OR/AND modes."""
 
     changed = pyqtSignal()
 
@@ -648,6 +654,7 @@ class FilterPanel(QGroupBox):
         self.sel       = Selection()
         self.allowed: set[str] | None = None
         self._searchable = searchable
+        self._any_mode   = True  # OR by default (any selected item matches)
 
         root = QVBoxLayout(self)
         root.setSpacing(6)
@@ -673,11 +680,16 @@ class FilterPanel(QGroupBox):
         self.mode_btn.setObjectName("showing")
         self.mode_btn.setFixedWidth(74)
         self.mode_btn.clicked.connect(self._flip_mode)
+        self.match_btn = QPushButton("OR")
+        self.match_btn.setObjectName("showing")
+        self.match_btn.setFixedWidth(46)
+        self.match_btn.clicked.connect(self._flip_match)
         self.count_lbl = QLabel("")
         self.count_lbl.setStyleSheet("color: #888; font-size: 11px;")
         clear_btn = QPushButton("Clear")
         clear_btn.clicked.connect(self.clear)
         bar.addWidget(self.mode_btn)
+        bar.addWidget(self.match_btn)
         bar.addWidget(self.count_lbl)
         bar.addStretch()
         bar.addWidget(clear_btn)
@@ -734,6 +746,18 @@ class FilterPanel(QGroupBox):
         self.mode_btn.style().polish(self.mode_btn)
         self.changed.emit()
 
+    def _flip_match(self) -> None:
+        self._any_mode = not self._any_mode
+        if self._any_mode:
+            self.match_btn.setText("OR")
+            self.match_btn.setObjectName("showing")
+        else:
+            self.match_btn.setText("AND")
+            self.match_btn.setObjectName("hiding")
+        self.match_btn.style().unpolish(self.match_btn)
+        self.match_btn.style().polish(self.match_btn)
+        self.changed.emit()
+
     def _update_count(self) -> None:
         n = len(self.sel.selected)
         self.count_lbl.setText(f"{n} selected" if n else "")
@@ -758,11 +782,21 @@ class FilterPanel(QGroupBox):
             self.mode_btn.setObjectName("showing")
             self.mode_btn.style().unpolish(self.mode_btn)
             self.mode_btn.style().polish(self.mode_btn)
+        if not self._any_mode:
+            self._any_mode = True
+            self.match_btn.setText("OR")
+            self.match_btn.setObjectName("showing")
+            self.match_btn.style().unpolish(self.match_btn)
+            self.match_btn.style().polish(self.match_btn)
         self._update_count()
 
     def clear(self) -> None:
         self.reset()
         self.changed.emit()
+
+    @property
+    def any_mode(self) -> bool:
+        return self._any_mode
 
     def included(self) -> set[str]:
         return self.sel.included()
@@ -964,27 +998,21 @@ class LibraryWidget(QWidget):
         self.count_lbl = QLabel("")
         self.count_lbl.setStyleSheet("font-weight: 600; font-size: 13px; color: #555;")
 
-        self._any_mode = False
-
         self.reset_btn    = QPushButton("Reset filters")
         self.refresh_btn  = QPushButton("Refresh library")
         self.playlist_btn = QPushButton("Save as playlist…")
         self.logout_btn   = QPushButton("Log out")
-        self.match_btn    = QPushButton("Match: AND")
-        self.match_btn.setObjectName("showing")
 
         self.reset_btn.clicked.connect(self._reset_filters)
         self.refresh_btn.clicked.connect(self._sync)
         self.playlist_btn.clicked.connect(self._create_playlist)
         self.logout_btn.clicked.connect(self._logout)
-        self.match_btn.clicked.connect(self._toggle_match_mode)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         btn_row.addWidget(self.reset_btn)
         btn_row.addWidget(self.refresh_btn)
         btn_row.addWidget(self.playlist_btn)
-        btn_row.addWidget(self.match_btn)
         btn_row.addStretch()
         btn_row.addWidget(self.logout_btn)
 
@@ -1068,10 +1096,18 @@ class LibraryWidget(QWidget):
         self.album_panel.set_allowed(allowed_albums)
         self.artist_panel.set_allowed(allowed_artists)
 
+        any_modes = {
+            "g":  self.genre_panel.any_mode,
+            "sg": self.subgenre_panel.any_mode,
+            "v":  self.vibe_panel.any_mode,
+            "e":  self.energy_panel.any_mode,
+            "ar": self.artist_panel.any_mode,
+            "al": self.album_panel.any_mode,
+        }
         q = self.search_box.text().strip().lower()
         shown = [
             r for r in self.rows
-            if row_matches(r, inc, exc, any_mode=self._any_mode)
+            if row_matches(r, inc, exc, any_modes)
             and (not q or q in r["artist"].lower() or q in r["title"].lower())
         ]
         self.model.update_rows(shown)
@@ -1084,18 +1120,6 @@ class LibraryWidget(QWidget):
         if checked:
             label += f"  ·  {checked} selected"
         self.count_lbl.setText(label)
-
-    def _toggle_match_mode(self) -> None:
-        self._any_mode = not self._any_mode
-        if self._any_mode:
-            self.match_btn.setText("Match: OR")
-            self.match_btn.setObjectName("hiding")
-        else:
-            self.match_btn.setText("Match: AND")
-            self.match_btn.setObjectName("showing")
-        self.match_btn.style().unpolish(self.match_btn)
-        self.match_btn.style().polish(self.match_btn)
-        self.refresh()
 
     def _reset_filters(self) -> None:
         for p in (self.genre_panel, self.subgenre_panel, self.vibe_panel,

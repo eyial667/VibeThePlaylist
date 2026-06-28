@@ -61,36 +61,51 @@ def _filters(**kw):
     return inc, exc
 
 
+def _modes(**kw):
+    """Build any_modes dict; default all panels to OR (True)."""
+    m = {k: True for k in ("g", "sg", "v", "e", "ar", "al")}
+    m.update(kw)
+    return m
+
+
 def test_exclude_removes_matching_row():
     inc, exc = _filters(exc_ar=["BannedArtist"])
-    assert gui.row_matches(_row(artist="BannedArtist"), inc, exc, any_mode=True) is False
-    assert gui.row_matches(_row(artist="OtherArtist"), inc, exc, any_mode=True) is True
+    assert gui.row_matches(_row(artist="BannedArtist"), inc, exc, _modes()) is False
+    assert gui.row_matches(_row(artist="OtherArtist"),  inc, exc, _modes()) is True
 
 
 def test_exclude_overrides_include():
     # include the genre but exclude the artist -> excluded wins
     inc, exc = _filters(inc_g=["Hip-hop/Rap"], exc_ar=["Z"])
     row = _row(genres=["Hip-hop/Rap"], artist="Z")
-    assert gui.row_matches(row, inc, exc, any_mode=True) is False
+    assert gui.row_matches(row, inc, exc, _modes()) is False
 
 
-def test_include_any_vs_all():
+def test_within_panel_or_vs_and():
+    # Two genres selected; row has only one of them
+    inc, exc = _filters(inc_g=["Jazz", "Rock"])
+    row = _row(genres=["Jazz"])
+    assert gui.row_matches(row, inc, exc, _modes(g=True))  is True   # OR: Jazz matches
+    assert gui.row_matches(row, inc, exc, _modes(g=False)) is False  # AND: need Jazz AND Rock
+
+
+def test_cross_panel_always_and():
+    # Genre matches, energy doesn't — cross-panel is always AND → False
     inc, exc = _filters(inc_g=["Jazz"], inc_e=["high"])
-    row = _row(genres=["Jazz"], energy="low")  # matches genre, not energy
-    assert gui.row_matches(row, inc, exc, any_mode=True) is True    # Any
-    assert gui.row_matches(row, inc, exc, any_mode=False) is False  # All
+    row = _row(genres=["Jazz"], energy="low")
+    assert gui.row_matches(row, inc, exc, _modes()) is False
 
 
 def test_no_filters_keeps_everything():
     inc, exc = _filters()
-    assert gui.row_matches(_row(), inc, exc, any_mode=True) is True
+    assert gui.row_matches(_row(), inc, exc, _modes()) is True
 
 
 def test_subgenre_include_and_exclude():
     inc, exc = _filters(inc_sg=["Drill"])
     assert gui.row_matches(_row(genres=["Hip-hop/Rap"], subgenres=["Drill"]),
-                           inc, exc, any_mode=True) is True
+                           inc, exc, _modes()) is True
     assert gui.row_matches(_row(genres=["Hip-hop/Rap"], subgenres=["Trap"]),
-                           inc, exc, any_mode=True) is False
+                           inc, exc, _modes()) is False
     inc, exc = _filters(exc_sg=["Drill"])
-    assert gui.row_matches(_row(subgenres=["Drill"]), inc, exc, any_mode=True) is False
+    assert gui.row_matches(_row(subgenres=["Drill"]), inc, exc, _modes()) is False
