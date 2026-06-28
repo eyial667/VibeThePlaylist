@@ -14,7 +14,7 @@ def test_option_lists_derive_from_config():
 
 
 def test_load_rows_returns_track_ids_and_labels(seeded_db):
-    import classify
+    from pipeline import classify
     classify.classify_all()
     rows = gui.load_rows()
     assert len(rows) == 2

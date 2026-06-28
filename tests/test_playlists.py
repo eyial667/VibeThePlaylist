@@ -3,7 +3,7 @@ import json
 
 import config
 import db
-import playlists
+from pipeline import playlists
 from spotipy import SpotifyException
 
 

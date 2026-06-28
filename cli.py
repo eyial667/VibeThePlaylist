@@ -17,11 +17,10 @@ import json
 
 from tqdm import tqdm
 
-import classify
+from pipeline import classify, enrich
 import config
 import db
-import enrich
-import spotify_client as spc
+from clients import spotify_client as spc
 
 
 def cmd_fetch(args) -> None:
@@ -91,7 +90,7 @@ def cmd_classify(args) -> None:
 
 def cmd_llm(args) -> None:
     db.init()
-    import llm
+    from ai import llm
     if not llm.available():
         print("ANTHROPIC_API_KEY not set — add it to .env to use the LLM pass. "
               "(The free genre fallback already gives full coverage.)")
@@ -168,7 +167,7 @@ def cmd_genre_classify(args) -> None:
 
 def cmd_playlists(args) -> None:
     db.init()
-    import playlists
+    from pipeline import playlists
     sp = spc.get_client()
     summary = playlists.sync_playlists(sp, dry_run=args.dry_run)
     head = "Would create/update" if args.dry_run else "Synced"
@@ -211,7 +210,7 @@ def cmd_query(args) -> None:
 
 
 def cmd_gen_subgenres(args) -> None:
-    import subgenre_gen
+    from pipeline import subgenre_gen
     if not subgenre_gen.available():
         print("gen-subgenres needs ANTHROPIC_API_KEY (set it in .env).")
         return

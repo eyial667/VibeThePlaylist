@@ -14,11 +14,11 @@ datas = [
 ]
 
 hiddenimports = [
-    "classify",
+    "pipeline.classify",
     "db",
-    "enrich",
-    "playlists",
-    "spotify_client",
+    "pipeline.enrich",
+    "pipeline.playlists",
+    "clients.spotify_client",
 ]
 
 a = Analysis(

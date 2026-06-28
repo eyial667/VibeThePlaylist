@@ -1,10 +1,10 @@
 """Tests for the LLM refinement orchestration (the Claude API call is mocked)."""
 import json
 
-import classify
+from pipeline import classify
 import config
 import db
-import llm
+from ai import llm
 
 
 def _seed_classified_rap(track_id="r1"):

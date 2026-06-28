@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
 
-import text_utils
+from utils import text_utils
 
 if TYPE_CHECKING:
     from .providers import MetadataProvider

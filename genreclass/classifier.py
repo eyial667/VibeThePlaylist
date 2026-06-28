@@ -16,7 +16,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 import config
-import text_utils
+from utils import text_utils
 
 from . import taxonomy as tax
 

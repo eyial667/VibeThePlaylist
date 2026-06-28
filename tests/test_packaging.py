@@ -33,11 +33,11 @@ def test_pyinstaller_spec_executes_with_specpath():
     assert namespace["datas"] == [(str(repo_root / "genreclass" / "taxonomy.json"), "genreclass")]
     assert namespace["a"].scripts == ["gui.py"]
     assert namespace["a"].hiddenimports == [
-        "classify",
+        "pipeline.classify",
         "db",
-        "enrich",
-        "playlists",
-        "spotify_client",
+        "pipeline.enrich",
+        "pipeline.playlists",
+        "clients.spotify_client",
     ]
 
 

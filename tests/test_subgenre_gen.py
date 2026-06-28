@@ -3,7 +3,7 @@
 The Claude + web-search call itself is mocked — these tests never hit the network.
 """
 import config
-import subgenre_gen
+from pipeline import subgenre_gen
 
 
 # --- config merge ----------------------------------------------------------

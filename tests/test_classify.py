@@ -1,7 +1,7 @@
 """Tests for the classification rules engine."""
 import json
 
-import classify
+from pipeline import classify
 import config
 import db
 

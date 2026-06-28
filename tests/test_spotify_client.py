@@ -1,6 +1,6 @@
 import time
 
-import spotify_client
+from clients import spotify_client
 
 
 def test_token_has_required_scopes_accepts_superset():
